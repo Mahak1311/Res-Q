@@ -1,8 +1,22 @@
+const {
+  createMap,
+  userIcon,
+  centerIcon,
+  requestIcon,
+  createRadiusCircle,
+  createMarkerPopupContent,
+  fetchRoute,
+} = window.ResQMaps || {};
+
 let map;
 let centersLayer;
 let requestsLayer;
 let routeLayer;
-let heatLayer;
+let userLayer;
+let zoneLayer;
+let userCircle;
+let latestRouteLine;
+let stopWatchingLocation = () => {};
 
 const dashboardState = {
   latestRequest: null,
@@ -11,6 +25,9 @@ const dashboardState = {
     network_congestion: false,
     auto_rerouting: true,
   },
+  currentLocation: { lat: 20.5937, lng: 78.9629 },
+  nearbyRadius: 1000,
+  followUser: true,
 };
 
 const statusChip = (status) => {
@@ -19,27 +36,63 @@ const statusChip = (status) => {
   return '<span class="chip bad">unresolved</span>';
 };
 
-function initMap() {
-  map = L.map("map").setView([12.9716, 77.5946], 12);
+// Copy the improved location functions from emergency.js
+const randomBangalorePoint = () => ({
+  lat: 12.90 + Math.random() * 0.13,
+  lng: 77.53 + Math.random() * 0.19,
+});
 
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    maxZoom: 19,
-    subdomains: "abcd",
-    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-  }).addTo(map);
+function getLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      console.warn("Geolocation not supported by browser");
+      resolve({ ...randomBangalorePoint(), source: "mock" });
+      return;
+    }
 
-  centersLayer = L.layerGroup().addTo(map);
-  requestsLayer = L.layerGroup().addTo(map);
-  routeLayer = L.layerGroup().addTo(map);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        resolve({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          source: "geolocation",
+        });
+      },
+      (error) => {
+        console.warn("Geolocation failed:", error.message);
+        // Try to get location from IP as fallback
+        fetchLocationFromIP().then(ipLocation => {
+          resolve(ipLocation);
+        }).catch(() => {
+          // Final fallback to Bangalore
+          resolve({ ...randomBangalorePoint(), source: "mock" });
+        });
+      },
+      { 
+        timeout: 15000,
+        enableHighAccuracy: true,
+        maximumAge: 60000
+      }
+    );
+  });
 }
 
-function pulseIcon(colorClass = "") {
-  return L.divIcon({
-    className: "",
-    html: `<div class="pulse-marker ${colorClass}"></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-  });
+async function fetchLocationFromIP() {
+  try {
+    const response = await fetch('https://ipapi.co/json/');
+    const data = await response.json();
+    if (data.latitude && data.longitude) {
+      return {
+        lat: data.latitude,
+        lng: data.longitude,
+        source: "ip-geolocation"
+      };
+    }
+    throw new Error("IP geolocation failed");
+  } catch (error) {
+    console.warn("IP geolocation failed:", error);
+    throw error;
+  }
 }
 
 function formatStatus(status) {
@@ -160,26 +213,107 @@ function renderTable(requests) {
   });
 }
 
-function renderMapData(data) {
+function clearMapLayers() {
   centersLayer.clearLayers();
   requestsLayer.clearLayers();
   routeLayer.clearLayers();
+  userLayer.clearLayers();
+  zoneLayer.clearLayers();
+}
 
-  const centersById = new Map(data.centers.map((c) => [c.id, c]));
+function renderCurrentLocation(location) {
+  dashboardState.currentLocation = location;
+
+  if (!map || !userLayer) {
+    return;
+  }
+
+  userLayer.clearLayers();
+  L.marker([location.lat, location.lng], { icon: userIcon() })
+    .bindPopup(createMarkerPopupContent({ name: "You are here 📍", type: "Current location", status: "Live" }))
+    .addTo(userLayer);
+
+  if (userCircle) {
+    userCircle.remove();
+  }
+  userCircle = createRadiusCircle([location.lat, location.lng], Number(dashboardState.nearbyRadius || 1000), {
+    color: "#2ed4ca",
+    fillColor: "#2ed4ca",
+    fillOpacity: 0.08,
+    dashArray: "7,9",
+  }).addTo(userLayer);
+
+  // Always follow user location for now, regardless of followUser flag
+  console.log("Dashboard: Setting view to user location:", [location.lat, location.lng]);
+  map.setView([location.lat, location.lng], Math.max(map.getZoom(), 13), { animate: true });
+}
+
+async function renderRouteForRequest(request) {
+  if (!request || !request.final_center) {
+    return;
+  }
+
+  const origin = request.location?.corrected || { lat: request.user_lat, lng: request.user_lng };
+  const destination = {
+    lat: request.final_center.lat,
+    lng: request.final_center.lng,
+  };
+
+  const route = await fetchRoute(origin, destination);
+  if (latestRouteLine) {
+    latestRouteLine.remove();
+    latestRouteLine = null;
+  }
+
+  if (route?.coordinates?.length) {
+    latestRouteLine = L.polyline(route.coordinates, {
+      color: request.final_status === "connected" ? "#22c55e" : "#facc15",
+      weight: 4,
+      opacity: 0.88,
+      className: "route-line-anim",
+    }).addTo(routeLayer);
+    return;
+  }
+
+  latestRouteLine = L.polyline(
+    [
+      [origin.lat, origin.lng],
+      [destination.lat, destination.lng],
+    ],
+    {
+      color: request.final_status === "connected" ? "#22c55e" : "#facc15",
+      weight: 4,
+      opacity: 0.7,
+      dashArray: "8,10",
+      className: "route-line-anim",
+    }
+  ).addTo(routeLayer);
+}
+
+async function renderMapData(data) {
+  if (!map) {
+    return;
+  }
+
+  clearMapLayers();
+  const centersById = new Map(data.centers.map((center) => [center.id, center]));
 
   data.centers.forEach((center) => {
-    const isFailed = Boolean(center.force_failure);
-    const isBusy = Boolean(center.overload) || center.runtime_status === "busy";
-    const color = isFailed ? "#ef4444" : isBusy ? "#facc15" : "#22c55e";
-    const marker = L.circleMarker([center.lat, center.lng], {
-      radius: 8,
-      color,
-      fillOpacity: 0.75,
-      weight: 2,
-    }).bindPopup(
-      `<strong>${center.name}</strong><br/>Status: ${center.runtime_status || "available"}<br/>Load: ${center.effective_load}/${center.capacity}<br/>Level: ${center.load_level || "low"}`
-    );
-    marker.addTo(centersLayer);
+    L.marker([center.lat, center.lng], {
+      icon: centerIcon(center.type, center.runtime_status),
+    })
+      .bindPopup(
+        createMarkerPopupContent({
+          name: center.name,
+          type: center.type,
+          status: center.runtime_status || "available",
+          extraLines: [
+            `Load: ${center.effective_load}/${center.capacity}`,
+            `Distance: ${Number(center.distance_km || 0).toFixed(1)} km`,
+          ],
+        })
+      )
+      .addTo(centersLayer);
   });
 
   data.failure_zones.forEach((zone) => {
@@ -192,17 +326,36 @@ function renderMapData(data) {
       dashArray: "4,5",
     })
       .bindPopup(`Failure-prone: ${zone.name}`)
-      .addTo(routeLayer);
+      .addTo(zoneLayer);
   });
 
   data.requests.forEach((req, index) => {
     const user = req.location.corrected;
     const color = req.final_status === "connected" ? "#22c55e" : req.final_status === "fallback_sent" ? "#facc15" : "#ef4444";
-    const userIcon = pulseIcon(req.final_status === "connected" ? "" : "route");
-
-    L.marker([user.lat, user.lng], { icon: userIcon })
-      .bindPopup(`<strong>${req.request_id}</strong><br/>Status: ${req.final_status}`)
+    L.marker([user.lat, user.lng], {
+      icon: requestIcon(req.final_status, index === 0),
+    })
+      .bindPopup(
+        createMarkerPopupContent({
+          name: req.request_id,
+          type: String(req.source || "mobile").toUpperCase(),
+          status: req.final_status,
+          extraLines: [
+            `Signal: ${req.network.strength}%`,
+            `Center: ${req.final_center?.name || "fallback"}`,
+          ],
+        })
+      )
       .addTo(requestsLayer);
+
+    if (index === 0) {
+      dashboardState.latestRequest = req;
+      // Don't override user location - comment out the setView call
+      // if (dashboardState.followUser) {
+      //   map.setView([user.lat, user.lng], 13, { animate: true });
+      // }
+      console.log("Dashboard: Latest request loaded but not overriding user location");
+    }
 
     req.attempts.forEach((attempt, attemptIndex) => {
       const center = centersById.get(attempt.center_id);
@@ -220,7 +373,7 @@ function renderMapData(data) {
         {
           color,
           weight: index === 0 ? 4 : 2,
-          opacity: index === 0 ? 0.86 : 0.42,
+          opacity: index === 0 ? 0.9 : 0.42,
           dashArray: attemptIndex > 0 ? "8,8" : undefined,
           className: index === 0 && attemptIndex === req.attempts.length - 1 ? "route-line-anim" : "",
         }
@@ -228,29 +381,21 @@ function renderMapData(data) {
     });
   });
 
-  if (typeof L.heatLayer === "function") {
-    if (heatLayer) {
-      map.removeLayer(heatLayer);
-    }
-    heatLayer = L.heatLayer(data.failure_heatmap, {
-      radius: 24,
-      blur: 16,
-      maxZoom: 15,
-      gradient: { 0.3: "#38bdf8", 0.5: "#facc15", 0.8: "#ef4444" },
-    }).addTo(map);
+  renderFocusCard(dashboardState.latestRequest);
+  if (dashboardState.latestRequest) {
+    await renderRouteForRequest(dashboardState.latestRequest);
   }
 }
 
 async function refreshDashboard() {
   const response = await fetch("/api/dashboard");
   const data = await response.json();
-  dashboardState.latestRequest = data.requests[0] || null;
   dashboardState.simulationState = data.simulation_state || dashboardState.simulationState;
+  dashboardState.nearbyRadius = data.nearby_helper_state?.radius_m || dashboardState.nearbyRadius || 1000;
   renderStats(data.summary);
-  renderFocusCard(dashboardState.latestRequest);
   renderActivity(data.requests);
   renderTable(data.requests);
-  renderMapData(data);
+  await renderMapData(data);
   renderSimulationBadge();
 }
 
@@ -290,8 +435,41 @@ function wireFeatureButtons() {
   });
 }
 
-initMap();
+function startLocationTracking() {
+  // Use our improved getLocation function instead of trackBrowserLocation
+  console.log("Dashboard: Starting location tracking");
+  getLocation().then(location => {
+    console.log("Dashboard: Got location:", location);
+    renderCurrentLocation(location);
+  }).catch(error => {
+    console.warn("Dashboard: Location tracking failed:", error);
+  });
+}
+
+function initMapView() {
+  if (!window.L || !createMap) {
+    return;
+  }
+
+  map = createMap("map", { center: [20.5937, 78.9629], zoom: 5 });
+  centersLayer = L.layerGroup().addTo(map);
+  requestsLayer = L.layerGroup().addTo(map);
+  routeLayer = L.layerGroup().addTo(map);
+  userLayer = L.layerGroup().addTo(map);
+  zoneLayer = L.layerGroup().addTo(map);
+
+  setTimeout(() => {
+    map.invalidateSize();
+  }, 0);
+}
+
+initMapView();
 wireSosButtons();
 wireFeatureButtons();
+startLocationTracking();
 refreshDashboard();
 setInterval(refreshDashboard, 4000);
+
+window.addEventListener("beforeunload", () => {
+  stopWatchingLocation();
+});

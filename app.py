@@ -21,6 +21,8 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "static" / "data"
 DB_PATH = Path(os.getenv("DATABASE_PATH", str(BASE_DIR / "safetytech.db")))
+DEFAULT_MAP_LAT = float(os.getenv("DEFAULT_MAP_LAT", "20.5937"))
+DEFAULT_MAP_LNG = float(os.getenv("DEFAULT_MAP_LNG", "78.9629"))
 
 app = Flask(__name__)
 
@@ -65,8 +67,8 @@ NEARBY_HELPER_STATE: dict[str, Any] = {
     "radius_m": 1000,
     "auto_alert_on_sos": True,
     "sound_alert": True,
-    "current_location": {"lat": 12.9716, "lng": 77.5946},
-    "emergency_location": {"lat": 12.9698, "lng": 77.6061},
+    "current_location": {"lat": DEFAULT_MAP_LAT, "lng": DEFAULT_MAP_LNG},
+    "emergency_location": {"lat": DEFAULT_MAP_LAT, "lng": DEFAULT_MAP_LNG},
     "last_alert": None,
 }
 ALLOWED_CENTER_STATUS = {"available", "busy", "offline"}
@@ -84,6 +86,12 @@ CELL_TOWERS = [
     {"id": "T-04", "lat": 12.9079, "lng": 77.5874, "provider": "BSNL", "base_strength": 64},
     {"id": "T-05", "lat": 12.9911, "lng": 77.6933, "provider": "Airtel", "base_strength": 69},
 ]
+
+OSM_CENTER_CACHE: dict[str, Any] = {
+    "centers": [],
+    "anchor": None,
+    "timestamp": None,
+}
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -166,8 +174,14 @@ def init_db() -> None:
 
 
 def sync_emergency_centers() -> None:
+    centers = configured_emergency_centers()
+    if not centers:
+        return
+
     with get_db_connection() as conn:
         now = now_iso()
+        # Remove legacy static seed rows so OSM/live data drives the map.
+        conn.execute("DELETE FROM emergency_centers WHERE id LIKE 'EC-%'")
         conn.executemany(
             """
             INSERT INTO emergency_centers (id, name, type, lat, lng, capacity, load, updated_at)
@@ -192,7 +206,7 @@ def sync_emergency_centers() -> None:
                     center.get("load", 0),
                     now,
                 )
-                for center in EMERGENCY_CENTERS
+                for center in centers
             ],
         )
 
@@ -496,24 +510,149 @@ def load_json(file_name: str) -> Any:
         return json.load(f)
 
 
-def configured_emergency_centers() -> list[dict[str, Any]]:
+def _cache_is_fresh(max_age_seconds: int = 300) -> bool:
+    timestamp = OSM_CENTER_CACHE.get("timestamp")
+    if not timestamp:
+        return False
+    age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
+    return age_seconds <= max_age_seconds
+
+
+def _cache_anchor_is_close(lat: float, lng: float, max_distance_km: float = 2.0) -> bool:
+    anchor = OSM_CENTER_CACHE.get("anchor")
+    if not anchor:
+        return False
+    return haversine_km(float(anchor["lat"]), float(anchor["lng"]), lat, lng) <= max_distance_km
+
+
+def fetch_live_osm_centers(lat: float, lng: float, radius_m: int = 10000) -> list[dict[str, Any]]:
+    if _cache_is_fresh() and _cache_anchor_is_close(lat, lng):
+        cached = OSM_CENTER_CACHE.get("centers") or []
+        return deepcopy(cached)
+
+    overpass_query = f"""
+        [out:json][timeout:12];
+        (
+          node["amenity"="hospital"](around:{radius_m},{lat},{lng});
+          way["amenity"="hospital"](around:{radius_m},{lat},{lng});
+          node["amenity"="police"](around:{radius_m},{lat},{lng});
+          way["amenity"="police"](around:{radius_m},{lat},{lng});
+          node["amenity"="fire_station"](around:{radius_m},{lat},{lng});
+          way["amenity"="fire_station"](around:{radius_m},{lat},{lng});
+        );
+        out center;
+    """.strip()
+
+    payload = url_parse.urlencode({"data": overpass_query}).encode("utf-8")
+    req = url_request.Request("https://overpass-api.de/api/interpreter", data=payload, method="POST")
+
     try:
-        data = load_json("emergency_centers.json")
-        if isinstance(data, list):
-            return data
+        with url_request.urlopen(req, timeout=14) as response:
+            raw = response.read().decode("utf-8")
+        parsed = json.loads(raw)
     except Exception:
-        pass
-    return deepcopy(EMERGENCY_CENTERS)
+        return deepcopy(OSM_CENTER_CACHE.get("centers") or [])
+
+    type_map = {
+        "hospital": "hospital",
+        "police": "police",
+        "fire_station": "fire",
+    }
+    capacity_defaults = {
+        "hospital": 30,
+        "police": 20,
+        "fire": 14,
+    }
+
+    centers: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for element in parsed.get("elements", []):
+        tags = element.get("tags") or {}
+        amenity = str(tags.get("amenity") or "").strip().lower()
+        mapped_type = type_map.get(amenity)
+        if not mapped_type:
+            continue
+
+        element_lat = element.get("lat")
+        element_lng = element.get("lon")
+        if element_lat is None or element_lng is None:
+            center = element.get("center") or {}
+            element_lat = center.get("lat")
+            element_lng = center.get("lon")
+        if element_lat is None or element_lng is None:
+            continue
+
+        center_id = f"OSM-{mapped_type}-{element.get('id')}"
+        if center_id in seen_ids:
+            continue
+        seen_ids.add(center_id)
+
+        default_name = f"{mapped_type.title()} Center {element.get('id')}"
+        centers.append(
+            {
+                "id": center_id,
+                "name": str(tags.get("name") or default_name),
+                "type": mapped_type,
+                "lat": float(element_lat),
+                "lng": float(element_lng),
+                "capacity": capacity_defaults[mapped_type],
+                "load": 0,
+            }
+        )
+
+    OSM_CENTER_CACHE.update(
+        {
+            "centers": centers,
+            "anchor": {"lat": lat, "lng": lng},
+            "timestamp": datetime.now(timezone.utc),
+        }
+    )
+
+    return deepcopy(centers)
+
+
+def configured_emergency_centers() -> list[dict[str, Any]]:
+    state = get_nearby_helper_state()
+    origin = state.get("current_location") or {"lat": DEFAULT_MAP_LAT, "lng": DEFAULT_MAP_LNG}
+    lat = float(origin.get("lat", DEFAULT_MAP_LAT))
+    lng = float(origin.get("lng", DEFAULT_MAP_LNG))
+    centers = fetch_live_osm_centers(lat, lng)
+    return centers
 
 
 def configured_nearby_helpers() -> list[dict[str, Any]]:
-    try:
-        data = load_json("nearby_helpers.json")
-        if isinstance(data, list):
-            return data
-    except Exception:
-        pass
-    return deepcopy(NEARBY_HELPERS)
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT request_id, source, user_lat, user_lng, created_at
+            FROM emergency_requests
+            ORDER BY created_at DESC
+            LIMIT 60
+            """
+        ).fetchall()
+
+    helpers: list[dict[str, Any]] = []
+    seen_coordinates: set[tuple[float, float]] = set()
+    for index, row in enumerate(rows, start=1):
+        lat = float(row["user_lat"])
+        lng = float(row["user_lng"])
+        coordinate_key = (round(lat, 4), round(lng, 4))
+        if coordinate_key in seen_coordinates:
+            continue
+        seen_coordinates.add(coordinate_key)
+
+        request_id = str(row["request_id"])
+        helpers.append(
+            {
+                "id": f"USR-{request_id[-6:]}-{index}",
+                "name": f"Nearby User {request_id[-4:]}",
+                "lat": lat,
+                "lng": lng,
+                "role": str(row["source"] or "community"),
+            }
+        )
+
+    return helpers
 
 
 def nearby_helper_center(lat: float, lng: float) -> dict[str, Any]:
@@ -571,11 +710,26 @@ def set_nearby_helper_state(payload: dict[str, Any]) -> dict[str, Any]:
     radius_m = int(payload.get("radius_m") or NEARBY_HELPER_STATE["radius_m"])
     radius_m = max(250, min(5000, radius_m))
 
+    current_location = payload.get("current_location")
+    emergency_location = payload.get("emergency_location")
+
     next_state = {
         "radius_m": radius_m,
         "auto_alert_on_sos": parse_bool(payload.get("auto_alert_on_sos"), NEARBY_HELPER_STATE["auto_alert_on_sos"]),
         "sound_alert": parse_bool(payload.get("sound_alert"), NEARBY_HELPER_STATE["sound_alert"]),
     }
+
+    if isinstance(current_location, dict) and "lat" in current_location and "lng" in current_location:
+        next_state["current_location"] = {
+            "lat": float(current_location["lat"]),
+            "lng": float(current_location["lng"]),
+        }
+
+    if isinstance(emergency_location, dict) and "lat" in emergency_location and "lng" in emergency_location:
+        next_state["emergency_location"] = {
+            "lat": float(emergency_location["lat"]),
+            "lng": float(emergency_location["lng"]),
+        }
 
     with STORE_LOCK:
         NEARBY_HELPER_STATE.update(next_state)
@@ -663,6 +817,7 @@ def simulate_nearby_helper_alert(
             {
                 "radius_m": radius_m,
                 "current_location": dict(location),
+                "emergency_location": dict(location),
                 "last_alert": response,
             }
         )
@@ -678,11 +833,6 @@ def simulate_nearby_helper_alert(
             )
 
     return response
-
-
-EMERGENCY_CENTERS = load_json("emergency_centers.json")
-MOCK_CDR = load_json("mock_cdr.json")
-NEARBY_HELPERS = load_json("nearby_helpers.json")
 
 
 def now_iso() -> str:
@@ -777,12 +927,6 @@ def resolve_center_type(center_id: str, raw_type: Any) -> str:
     if normalized in {"hospital", "police", "fire"}:
         return normalized
 
-    for configured in configured_emergency_centers():
-        if configured.get("id") == center_id:
-            fallback_type = str(configured.get("type") or "").strip().lower()
-            if fallback_type in {"hospital", "police", "fire"}:
-                return fallback_type
-
     return "hospital"
 
 
@@ -810,26 +954,25 @@ def load_emergency_centers() -> list[dict[str, Any]]:
             for row in rows
         ]
 
-        present_ids = {center["id"] for center in centers_from_db}
-        for configured in configured_emergency_centers():
-            if configured.get("id") in present_ids:
-                continue
-            centers_from_db.append(
-                {
-                    "id": configured["id"],
-                    "name": configured.get("name", "Unknown Center"),
-                    "type": resolve_center_type(configured["id"], configured.get("type")),
-                    "lat": float(configured["lat"]),
-                    "lng": float(configured["lng"]),
-                    "capacity": int(configured.get("capacity") or 0),
-                    "load": int(configured.get("load") or 0),
-                }
-            )
-
         centers_from_db.sort(key=lambda center: center["id"])
         return centers_from_db
 
-    return deepcopy(EMERGENCY_CENTERS)
+    live_centers = configured_emergency_centers()
+    if live_centers:
+        return [
+            {
+                "id": center["id"],
+                "name": center.get("name", "Unknown Center"),
+                "type": resolve_center_type(center["id"], center.get("type")),
+                "lat": float(center["lat"]),
+                "lng": float(center["lng"]),
+                "capacity": int(center.get("capacity") or 0),
+                "load": int(center.get("load") or 0),
+            }
+            for center in live_centers
+        ]
+
+    return []
 
 
 def normalize_center_status_id(center_id: str) -> int | str:
@@ -1186,12 +1329,17 @@ def log_ui_action(action: dict[str, Any]) -> None:
 
 @app.route("/")
 def home() -> str:
-    return render_template("dashboard.html")
+    return render_template("intro.html")
 
 
 @app.route("/home")
 def main_home() -> str:
     return redirect(url_for("dashboard"))
+
+
+@app.route("/intro")
+def intro() -> str:
+    return render_template("intro.html")
 
 
 @app.route("/emergency")
@@ -1282,7 +1430,7 @@ def api_bootstrap():
         {
             "centers": centers,
             "failure_zones": FAILURE_ZONES,
-            "cdr_sample": MOCK_CDR,
+            "recent_events": fetch_recent_requests(limit=5),
             "emergency_type": response_emergency_type,
             "simulation_state": get_simulation_state(),
         }
@@ -1442,7 +1590,7 @@ def api_admin_center_control():
 def api_nearby_helpers():
     if request.method == "GET":
         state = get_nearby_helper_state()
-        location = state.get("current_location") or {"lat": 12.9716, "lng": 77.5946}
+        location = state.get("current_location") or {"lat": DEFAULT_MAP_LAT, "lng": DEFAULT_MAP_LNG}
         radius_m = int(state.get("radius_m") or 1000)
         emergency_type = normalize_emergency_type(request.args.get("emergency_type") or "medical")
         helpers = [

@@ -14,10 +14,23 @@ const emergencyConsole = document.getElementById("emergencyConsole");
 const metricOneValue = document.getElementById("metricOneValue");
 const metricTwoValue = document.getElementById("metricTwoValue");
 
+const {
+  createMap,
+  userIcon,
+  emergencyIcon,
+  createRadiusCircle,
+  createMarkerPopupContent,
+  trackBrowserLocation,
+  fetchRoute,
+} = window.ResQMaps || {};
+
 let activeMode = "mobile";
 let map;
 let userMarker;
+let emergencyMarker;
 let routeLine;
+let locationCircle;
+let currentLocation = null;
 const centerMarkers = new Map();
 let bootstrapCenters = [];
 let bootstrapSimulationState = {
@@ -277,15 +290,43 @@ function initMap() {
     return;
   }
 
-  map = L.map("emergencyMap", {
-    zoomControl: true,
-  }).setView([12.9716, 77.5946], 12);
+  map = createMap("emergencyMap", {
+    center: [20.5937, 78.9629],
+    zoom: 5,
+  });
 
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    maxZoom: 19,
-    subdomains: "abcd",
-    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-  }).addTo(map);
+  map.on("click", (event) => {
+    currentLocation = { lat: event.latlng.lat, lng: event.latlng.lng };
+    upsertUserMarker(currentLocation);
+  });
+}
+
+async function initializeLocation() {
+  try {
+    const location = await getLocation();
+    currentLocation = location;
+    upsertUserMarker(location);
+    upsertEmergencyMarker(location);
+    ensureLocationLayer();
+    console.log("Location initialized:", location);
+  } catch (error) {
+    console.warn("Failed to initialize location:", error);
+  }
+}
+
+function ensureLocationLayer() {
+  if (!map) {
+    return;
+  }
+
+  if (!locationCircle && currentLocation) {
+    locationCircle = createRadiusCircle([currentLocation.lat, currentLocation.lng], 1000, {
+      color: "#2ed4ca",
+      fillColor: "#2ed4ca",
+      fillOpacity: 0.08,
+      dashArray: "7,10",
+    }).addTo(map);
+  }
 }
 
 function styleCenterMarker(marker, mode) {
@@ -304,7 +345,14 @@ function renderCentersOnMap(centers) {
     const marker = L.marker([center.lat, center.lng], {
       icon: createCenterIcon("idle"),
     })
-      .bindPopup(`<strong>${center.name}</strong><br/>Capacity: ${center.capacity}<br/>Load: ${center.load}`)
+      .bindPopup(
+        createMarkerPopupContent({
+          name: center.name,
+          type: center.type || activeTheme.centerLabel,
+          status: center.runtime_status || "available",
+          extraLines: [`Capacity: ${center.capacity}`, `Load: ${center.load}`],
+        })
+      )
       .addTo(map);
     centerMarkers.set(center.id, marker);
   });
@@ -315,23 +363,59 @@ function upsertUserMarker(location) {
     return;
   }
 
-  const icon = L.divIcon({
-    className: "",
-    html: '<div class="pulse-marker"></div>',
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-  });
+  console.log("UPSERT USER MARKER - Location:", location);
+  currentLocation = location;
 
-  if (!userMarker) {
-    userMarker = L.marker([location.lat, location.lng], { icon }).addTo(map);
-  } else {
+  if (userMarker) {
     userMarker.setLatLng([location.lat, location.lng]);
+  } else {
+    userMarker = L.marker([location.lat, location.lng], { icon: userIcon() }).addTo(map);
   }
-  userMarker.bindPopup("Caller location");
-  map.panTo([location.lat, location.lng], { animate: true, duration: 0.8 });
+
+  userMarker.bindPopup(
+    createMarkerPopupContent({
+      name: "Your Location",
+      type: "Current Position",
+      status: location.source || "unknown",
+      extraLines: [`Source: ${location.source}`],
+    })
+  );
+
+  if (locationCircle) {
+    locationCircle.setLatLng([location.lat, location.lng]);
+  } else {
+    locationCircle = createRadiusCircle([location.lat, location.lng], 1000, {
+      color: "#2ed4ca",
+      fillColor: "#2ed4ca",
+      fillOpacity: 0.08,
+    }).addTo(map);
+  }
+
+  console.log("SETTING MAP VIEW to:", [location.lat, location.lng]);
+  map.setView([location.lat, location.lng], Math.max(map.getZoom(), 14), { animate: true });
 }
 
-function drawRoute(userLocation, center, status) {
+function upsertEmergencyMarker(location) {
+  if (!map) {
+    return;
+  }
+
+  if (emergencyMarker) {
+    emergencyMarker.setLatLng([location.lat, location.lng]);
+  } else {
+    emergencyMarker = L.marker([location.lat, location.lng], { icon: emergencyIcon() }).addTo(map);
+  }
+
+  emergencyMarker.bindPopup(
+    createMarkerPopupContent({
+      name: "Emergency location 🚨",
+      type: "Incident",
+      status: "Active",
+    })
+  );
+}
+
+async function drawRoute(userLocation, center, status) {
   if (!map || !center) {
     return;
   }
@@ -340,7 +424,19 @@ function drawRoute(userLocation, center, status) {
     routeLine.remove();
   }
 
+  const route = await fetchRoute(userLocation, center);
   const color = status === "connected" ? activeTheme.routeConnected : activeTheme.routeFailed;
+
+  if (route?.coordinates?.length) {
+    routeLine = L.polyline(route.coordinates, {
+      color,
+      weight: 4,
+      opacity: 0.9,
+      className: activeTheme.routeClass,
+    }).addTo(map);
+    return;
+  }
+
   routeLine = L.polyline(
     [
       [userLocation.lat, userLocation.lng],
@@ -354,6 +450,22 @@ function drawRoute(userLocation, center, status) {
       className: activeTheme.routeClass,
     }
   ).addTo(map);
+}
+
+function startLocationTracking() {
+  // Use our improved getLocation function instead of trackBrowserLocation
+  // Only update if we don't already have a good location
+  if (!currentLocation || currentLocation.source === "mock") {
+    getLocation().then(location => {
+      currentLocation = location;
+      upsertUserMarker(location);
+      console.log("Location tracking updated:", location);
+    }).catch(error => {
+      console.warn("Location tracking failed:", error);
+    });
+  } else {
+    console.log("Using existing location:", currentLocation);
+  }
 }
 
 async function loadBootstrapData() {
@@ -452,7 +564,7 @@ async function runFlow(data, location) {
       styleCenterMarker(marker, "active");
       marker.openPopup();
     }
-    drawRoute(location, center, attempt.status);
+    await drawRoute(location, center, attempt.status);
 
     addMessage(`Checking availability for ${center.name}...`, "neutral");
     statusText.textContent = `Checking availability for ${center.name}...`;
@@ -543,6 +655,7 @@ async function runFlow(data, location) {
 function getLocation() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
+      console.warn("Geolocation not supported by browser");
       resolve({ ...randomBangalorePoint(), source: "mock" });
       return;
     }
@@ -555,10 +668,41 @@ function getLocation() {
           source: "geolocation",
         });
       },
-      () => resolve({ ...randomBangalorePoint(), source: "mock" }),
-      { timeout: 5000 }
+      (error) => {
+        console.warn("Geolocation failed:", error.message);
+        // Try to get location from IP as fallback
+        fetchLocationFromIP().then(ipLocation => {
+          resolve(ipLocation);
+        }).catch(() => {
+          // Final fallback to Bangalore
+          resolve({ ...randomBangalorePoint(), source: "mock" });
+        });
+      },
+      { 
+        timeout: 15000, // Increased timeout to 15 seconds
+        enableHighAccuracy: true,
+        maximumAge: 60000 // Accept cached location up to 1 minute old
+      }
     );
   });
+}
+
+async function fetchLocationFromIP() {
+  try {
+    const response = await fetch('https://ipapi.co/json/');
+    const data = await response.json();
+    if (data.latitude && data.longitude) {
+      return {
+        lat: data.latitude,
+        lng: data.longitude,
+        source: "ip-geolocation"
+      };
+    }
+    throw new Error("IP geolocation failed");
+  } catch (error) {
+    console.warn("IP geolocation failed:", error);
+    throw error;
+  }
 }
 
 function setActiveMode(mode) {
@@ -587,6 +731,8 @@ async function triggerEmergency() {
     runtimeHint.textContent = `${emergencyDescription} in progress...`;
   }
   upsertUserMarker(location);
+  upsertEmergencyMarker(location);
+  ensureLocationLayer();
 
   const response = await fetch("/api/emergency/trigger", {
     method: "POST",
@@ -652,5 +798,8 @@ modeButtons.forEach((button) => {
 });
 
 initMap();
+console.log("Emergency.js loaded - about to initialize location");
+initializeLocation();
+startLocationTracking();
 loadBootstrapData();
 setActiveMode(activeMode);
