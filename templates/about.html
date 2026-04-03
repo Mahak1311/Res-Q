@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block title %}Res Q | About{% endblock %}
+
+{% block content %}
+<section class="card reveal">
+  <p class="eyebrow">Problem Context</p>
+  <h1>Why This System Matters</h1>
+  <p class="lead">
+    Emergency calls may fail due to weak network coverage, busy dispatch lines, or location mismatches.
+    This prototype demonstrates a resilient, smart-routing architecture that keeps emergency requests moving
+    until they reach an actionable response channel.
+  </p>
+</section>
+
+<section class="card reveal delay-1">
+  <h2>Solution Components</h2>
+  <div class="about-grid">
+    <article class="metric-tile">
+      <p>Detection</p>
+      <strong>Drop, Busy, Timeout Simulation</strong>
+    </article>
+    <article class="metric-tile">
+      <p>Correction</p>
+      <strong>GPS + Cell Tower Fusion</strong>
+    </article>
+    <article class="metric-tile">
+      <p>Routing</p>
+      <strong>Nearest Available Center Selection</strong>
+    </article>
+    <article class="metric-tile">
+      <p>Redundancy</p>
+      <strong>SMS / Internet Fallback Alerts</strong>
+    </article>
+  </div>
+</section>
+
+<section class="card reveal delay-2">
+  <h2>System Architecture</h2>
+  <div class="flow-row">
+    <span>Trigger</span>
+    <span>Signal Analysis</span>
+    <span>Failure Detection</span>
+    <span>Rerouting Engine</span>
+    <span>Map + Logs</span>
+  </div>
+</section>
+{% endblock %}

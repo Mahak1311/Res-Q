@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Res Q | Intro</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+					href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap"
+			rel="stylesheet"
+		/>
+		<link rel="stylesheet" href="{{ url_for('static', filename='css/intro.css') }}" />
+	</head>
+	<body>
+		<div class="intro-shell" id="introShell">
+			<video class="bg-video" autoplay muted playsinline loop>
+				<source src="{{ url_for('static', filename='css/intro-video.mp4') }}" type="video/mp4" />
+			</video>
+
+			<div class="video-tint" aria-hidden="true"></div>
+			<div class="video-bottom-fade" aria-hidden="true"></div>
+
+			<main class="intro-content" aria-label="Res Q intro">
+				<section id="introPanel" class="intro-panel" aria-label="Res Q branding panel">
+					<h1 id="brandTitle" class="brand-title">Res Q</h1>
+					<p id="tagline" class="tagline">Reliable Emergency Response, When It Matters Most</p>
+					<a id="startButton" class="start-btn" href="{{ url_for('main_home') }}">Start</a>
+				</section>
+			</main>
+		</div>
+
+		<script src="{{ url_for('static', filename='js/intro.js') }}"></script>
+	</body>
+</html>

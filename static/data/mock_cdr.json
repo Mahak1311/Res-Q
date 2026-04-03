@@ -1,0 +1,34 @@
+[
+  {
+    "record_id": "CDR-001",
+    "tower_id": "T-11",
+    "timestamp": "2026-04-03T08:20:34Z",
+    "duration_sec": 3,
+    "signal_quality": 28,
+    "result": "dropped"
+  },
+  {
+    "record_id": "CDR-002",
+    "tower_id": "T-17",
+    "timestamp": "2026-04-03T08:21:10Z",
+    "duration_sec": 0,
+    "signal_quality": 45,
+    "result": "busy"
+  },
+  {
+    "record_id": "CDR-003",
+    "tower_id": "T-09",
+    "timestamp": "2026-04-03T08:22:08Z",
+    "duration_sec": 14,
+    "signal_quality": 71,
+    "result": "connected"
+  },
+  {
+    "record_id": "CDR-004",
+    "tower_id": "T-04",
+    "timestamp": "2026-04-03T08:23:48Z",
+    "duration_sec": 9,
+    "signal_quality": 38,
+    "result": "no_response"
+  }
+]

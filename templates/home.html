@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+
+{% block title %}Res Q | Home{% endblock %}
+
+{% block content %}
+<section class="hero card reveal">
+  <div class="hero-left">
+    <div class="hero-meta-row">
+      <p class="eyebrow">Res Q Command Interface</p>
+      <span class="live-indicator">
+        <span class="live-dot"></span>
+        System Active
+      </span>
+    </div>
+
+    <h1>Emergency Call Failure and Misrouting Detection System</h1>
+    <p class="lead">
+      Monitor failures in real time, verify location quality, and reroute emergency calls to available response centers without delay.
+    </p>
+
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="{{ url_for('emergency') }}">Start SOS Simulation</a>
+      <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Open Live Dashboard</a>
+    </div>
+  </div>
+
+  <div class="hero-right">
+    <div class="hero-grid">
+      <article class="system-card detection-card">
+        <div class="card-head">
+          <span class="card-icon">📡</span>
+          <span class="card-badge active">ACTIVE</span>
+        </div>
+        <p>Detection Layer</p>
+        <strong>Live Failure Sensing</strong>
+      </article>
+
+      <article class="system-card routing-card">
+        <div class="card-head">
+          <span class="card-icon">🧭</span>
+          <span class="card-badge running">RUNNING</span>
+        </div>
+        <p>Routing Layer</p>
+        <strong>Nearest Center Selection</strong>
+      </article>
+
+      <article class="system-card fallback-card">
+        <div class="card-head">
+          <span class="card-icon">📨</span>
+          <span class="card-badge running">RUNNING</span>
+        </div>
+        <p>Fallback Layer</p>
+        <strong>SMS / Internet Alert</strong>
+      </article>
+
+      <article class="system-card monitor-card">
+        <div class="card-head">
+          <span class="card-icon">🗺️</span>
+          <span class="card-badge active">ACTIVE</span>
+        </div>
+        <p>Monitoring Layer</p>
+        <strong>Map and Event Tracking</strong>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="card reveal delay-1">
+  <h2>System Flow</h2>
+  <div class="flow-row flow-interactive">
+    <button type="button" class="flow-step">User Trigger</button>
+    <button type="button" class="flow-step">Location Correction</button>
+    <button type="button" class="flow-step">Failure Detection</button>
+    <button type="button" class="flow-step">Smart Rerouting</button>
+    <button type="button" class="flow-step">Resolution + Logs</button>
+  </div>
+</section>
+{% endblock %}

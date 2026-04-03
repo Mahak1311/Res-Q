@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block title %}Res Q | Emergency Trigger{% endblock %}
+
+{% block content %}
+<section class="card emergency-layout reveal">
+  <div class="sos-panel">
+    <p class="eyebrow">Emergency Trigger</p>
+    <h1>SOS Simulation Console</h1>
+    <div class="mode-picker" aria-label="Call mode selector">
+      <button type="button" class="mode-btn active" data-mode="mobile">Mobile Call</button>
+      <button type="button" class="mode-btn" data-mode="voip">VoIP Call</button>
+    </div>
+    <p class="compat-note">Compatible with mobile and VoIP-based emergency calls.</p>
+    <button id="sosButton" class="sos-button" type="button">SOS</button>
+    <p class="muted">Press to simulate call attempt, failure detection, rerouting, and fallback.</p>
+
+    <div class="network-widget">
+      <p>Network Strength</p>
+      <div class="strength-bar"><span id="strengthFill"></span></div>
+      <strong id="strengthValue">--%</strong>
+    </div>
+
+    <div class="location-box">
+      <p>Detected Location</p>
+      <div id="locationText">Awaiting location...</div>
+    </div>
+
+    <div class="location-box">
+      <p>Call Mode</p>
+      <div id="callModeText">Mobile call selected</div>
+    </div>
+  </div>
+
+  <div class="status-panel">
+    <div class="status-header">
+      <h2>Call Status</h2>
+      <span id="finalBadge" class="status-badge neutral">idle</span>
+    </div>
+    <p id="statusText" class="status-text">Ready to trigger emergency workflow.</p>
+    <ul id="messageFeed" class="message-feed"></ul>
+
+    <h3>Routing Attempts</h3>
+    <div class="table-wrap">
+      <table class="data-table" id="attemptTable">
+        <thead>
+          <tr>
+            <th>Attempt</th>
+            <th>Center</th>
+            <th>Distance</th>
+            <th>Status</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/emergency.js') }}"></script>
+{% endblock %}
