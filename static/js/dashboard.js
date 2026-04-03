@@ -21,14 +21,17 @@ let stopWatchingLocation = () => {};
 const dashboardState = {
   latestRequest: null,
   totalRequests: 0,
+  summary: null,
+  latestData: null,
   simulationState: {
     network_congestion: false,
     auto_rerouting: true,
   },
   currentLocation: { lat: 20.5937, lng: 78.9629 },
-  nearbyRadius: 1000,
   followUser: true,
 };
+
+const NEUTRAL_LOCATION = { lat: 20.5937, lng: 78.9629 };
 
 const statusChip = (status) => {
   if (status === "connected") return '<span class="chip good">connected</span>';
@@ -36,17 +39,11 @@ const statusChip = (status) => {
   return '<span class="chip bad">unresolved</span>';
 };
 
-// Copy the improved location functions from emergency.js
-const randomBangalorePoint = () => ({
-  lat: 12.90 + Math.random() * 0.13,
-  lng: 77.53 + Math.random() * 0.19,
-});
-
 function getLocation() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       console.warn("Geolocation not supported by browser");
-      resolve({ ...randomBangalorePoint(), source: "mock" });
+      resolve({ ...NEUTRAL_LOCATION, source: "default" });
       return;
     }
 
@@ -58,41 +55,16 @@ function getLocation() {
           source: "geolocation",
         });
       },
-      (error) => {
-        console.warn("Geolocation failed:", error.message);
-        // Try to get location from IP as fallback
-        fetchLocationFromIP().then(ipLocation => {
-          resolve(ipLocation);
-        }).catch(() => {
-          // Final fallback to Bangalore
-          resolve({ ...randomBangalorePoint(), source: "mock" });
-        });
+      () => {
+        resolve({ ...NEUTRAL_LOCATION, source: "default" });
       },
-      { 
+      {
         timeout: 15000,
         enableHighAccuracy: true,
-        maximumAge: 60000
+        maximumAge: 60000,
       }
     );
   });
-}
-
-async function fetchLocationFromIP() {
-  try {
-    const response = await fetch('https://ipapi.co/json/');
-    const data = await response.json();
-    if (data.latitude && data.longitude) {
-      return {
-        lat: data.latitude,
-        lng: data.longitude,
-        source: "ip-geolocation"
-      };
-    }
-    throw new Error("IP geolocation failed");
-  } catch (error) {
-    console.warn("IP geolocation failed:", error);
-    throw error;
-  }
 }
 
 function formatStatus(status) {
@@ -114,12 +86,41 @@ function estimateEta(distanceKm, status) {
 }
 
 function renderStats(summary) {
+  dashboardState.summary = summary;
   dashboardState.totalRequests = summary.total;
   const active = Math.max(0, summary.total - summary.connected - summary.unresolved);
   document.getElementById("statActive").textContent = active;
   document.getElementById("statFailed").textContent = summary.unresolved;
   document.getElementById("statRerouted").textContent = summary.rerouted;
   document.getElementById("statResponse").textContent = `${Math.max(2, Math.round(12 - summary.connected * 0.4))}s`;
+}
+
+function publishDashboardContext(data = dashboardState.latestData || {}) {
+  if (!window.ResQContextPanel?.set) {
+    return;
+  }
+
+  const summary = dashboardState.summary || data.summary || {};
+  const requests = Array.isArray(data.requests) ? data.requests : [];
+  const latestStrength = Number(requests[0]?.network?.strength ?? 0);
+  const congestion = Boolean(dashboardState.simulationState?.network_congestion);
+  const networkStatus = congestion
+    ? "Congested"
+    : latestStrength > 65
+      ? "Strong"
+      : latestStrength > 35
+        ? "Weak"
+        : "Weak";
+
+  window.ResQContextPanel.set("dashboard", {
+    summary,
+    requests,
+    simulationState: dashboardState.simulationState,
+    currentLocation: dashboardState.currentLocation,
+    activeCalls: Math.max(0, Number(summary.total || 0) - Number(summary.connected || 0) - Number(summary.unresolved || 0)),
+    reroutedCalls: Number(summary.rerouted || 0),
+    networkStatus,
+  });
 }
 
 function renderSimulationBadge() {
@@ -246,6 +247,7 @@ function renderCurrentLocation(location) {
   // Always follow user location for now, regardless of followUser flag
   console.log("Dashboard: Setting view to user location:", [location.lat, location.lng]);
   map.setView([location.lat, location.lng], Math.max(map.getZoom(), 13), { animate: true });
+  publishDashboardContext();
 }
 
 async function renderRouteForRequest(request) {
@@ -296,9 +298,10 @@ async function renderMapData(data) {
   }
 
   clearMapLayers();
-  const centersById = new Map(data.centers.map((center) => [center.id, center]));
+  dashboardState.latestData = data;
+  const centersById = new Map((data.centers || []).map((center) => [center.id, center]));
 
-  data.centers.forEach((center) => {
+  (data.centers || []).forEach((center) => {
     L.marker([center.lat, center.lng], {
       icon: centerIcon(center.type, center.runtime_status),
     })
@@ -316,7 +319,7 @@ async function renderMapData(data) {
       .addTo(centersLayer);
   });
 
-  data.failure_zones.forEach((zone) => {
+  (data.failure_zones || []).forEach((zone) => {
     L.circle([zone.lat, zone.lng], {
       radius: 800,
       color: "#f97316",
@@ -329,7 +332,7 @@ async function renderMapData(data) {
       .addTo(zoneLayer);
   });
 
-  data.requests.forEach((req, index) => {
+  (data.requests || []).forEach((req, index) => {
     const user = req.location.corrected;
     const color = req.final_status === "connected" ? "#22c55e" : req.final_status === "fallback_sent" ? "#facc15" : "#ef4444";
     L.marker([user.lat, user.lng], {
@@ -385,11 +388,13 @@ async function renderMapData(data) {
   if (dashboardState.latestRequest) {
     await renderRouteForRequest(dashboardState.latestRequest);
   }
+  publishDashboardContext(data);
 }
 
 async function refreshDashboard() {
   const response = await fetch("/api/dashboard");
   const data = await response.json();
+  dashboardState.latestData = data;
   dashboardState.simulationState = data.simulation_state || dashboardState.simulationState;
   dashboardState.nearbyRadius = data.nearby_helper_state?.radius_m || dashboardState.nearbyRadius || 1000;
   renderStats(data.summary);
@@ -397,10 +402,11 @@ async function refreshDashboard() {
   renderTable(data.requests);
   await renderMapData(data);
   renderSimulationBadge();
+  publishDashboardContext(data);
 }
 
 function wireSosButtons() {
-  const buttons = [document.getElementById("sidebarSos"), document.getElementById("mapSos")].filter(Boolean);
+  const buttons = [document.getElementById("mapSos")].filter(Boolean);
   buttons.forEach((button) => {
     button.addEventListener("click", () => {
       window.location.href = "/emergency";

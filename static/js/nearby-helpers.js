@@ -78,6 +78,7 @@ function renderStats(alertData) {
   if (!alertData) {
     if (helpersNotifiedBadge) helpersNotifiedBadge.textContent = "0 helpers notified";
     if (helpersRespondingBadge) helpersRespondingBadge.textContent = "0 responding";
+    publishNearbyContext();
     return;
   }
 
@@ -87,6 +88,28 @@ function renderStats(alertData) {
   if (helpersRespondingBadge) {
     helpersRespondingBadge.textContent = `${alertData.stats.responding} responding`;
   }
+
+  publishNearbyContext();
+}
+
+function publishNearbyContext() {
+  if (!window.ResQContextPanel?.set) {
+    return;
+  }
+
+  const respondingCount = nearbyState.helpers.filter((helper) => helper.status === "responding").length;
+  const pendingCount = nearbyState.helpers.filter((helper) => helper.status === "pending").length;
+
+  window.ResQContextPanel.set("nearby_helpers", {
+    totalHelpers: nearbyState.helpers.length,
+    respondingCount,
+    pendingCount,
+    radiusLabel: metersToLabel(nearbyState.radius_m),
+    autoAlert: nearbyState.auto_alert_on_sos,
+    soundAlert: nearbyState.sound_alert,
+    alertStatus: nearbyState.alert ? "Sent" : "Not Sent",
+    alertSummary: nearbyState.alert?.preview?.headline || "No nearby alert has been sent yet.",
+  });
 }
 
 function renderHelpersList(helpers) {
@@ -202,6 +225,7 @@ function updateControlsFromState() {
   radiusPills.forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.radius) === nearbyState.radius_m);
   });
+  publishNearbyContext();
 }
 
 function playSoundAlert() {
@@ -308,6 +332,7 @@ async function loadHelpers() {
   renderStats(data.state?.last_alert);
   renderHelpersList(nearbyState.helpers);
   renderMap();
+  publishNearbyContext();
 }
 
 async function sendNearbyAlert() {
@@ -345,6 +370,7 @@ async function sendNearbyAlert() {
   renderStats(alertData);
   renderHelpersList(nearbyState.helpers);
   renderMap();
+  publishNearbyContext();
 
   if (nearbySyncBadge) {
     nearbySyncBadge.textContent = "Alert sent";
@@ -398,6 +424,7 @@ function startLocationTracking() {
       nearbyState.current_location = location;
       renderMap();
       syncLocationToBackend();
+      publishNearbyContext();
     },
     onError: () => {
       // Keep the last known location if browser geolocation is denied.

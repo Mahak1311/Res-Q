@@ -4,33 +4,6 @@
 
 {% block content %}
 <section class="command-center admin-shell reveal">
-  <aside class="dashboard-sidebar glass-panel">
-    <div class="sidebar-brand">
-      <div class="brand-mark">AC</div>
-      <div>
-        <p class="eyebrow">Res Q</p>
-        <strong>Admin Control</strong>
-      </div>
-    </div>
-
-    <nav class="sidebar-nav" aria-label="Admin navigation">
-      <a class="sidebar-link" href="{{ url_for('dashboard') }}">🛰️ Dashboard</a>
-      <a class="sidebar-link" href="{{ url_for('emergency') }}">🚨 Emergency</a>
-      <a class="sidebar-link active" href="{{ url_for('admin') }}">⚙️ Admin Control</a>
-      <a class="sidebar-link" href="{{ url_for('nearby_helpers') }}">👥 Nearby Helpers</a>
-      <a class="sidebar-link" href="{{ url_for('logs') }}">📒 Logs</a>
-      <a class="sidebar-link" href="{{ url_for('about') }}">ℹ️ About</a>
-    </nav>
-
-    <div class="sidebar-footer">
-      <p class="mini-label">Control Plane</p>
-      <span class="live-indicator">
-        <span class="live-dot"></span>
-        Simulation Live
-      </span>
-    </div>
-  </aside>
-
   <main class="admin-center-panel glass-panel">
     <div class="admin-hero">
       <div>

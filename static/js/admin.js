@@ -127,6 +127,27 @@ function renderSummaryPills() {
   }
 }
 
+function publishAdminContext() {
+  if (!window.ResQContextPanel?.set) {
+    return;
+  }
+
+  const availableCount = state.centers.filter((center) => statusLabel(center) === "Available").length;
+  const busyCount = state.centers.filter((center) => statusLabel(center) === "Busy").length;
+  const offlineCount = state.centers.filter((center) => statusLabel(center) === "Offline").length;
+  const forcedFailures = state.centers.filter((center) => center.force_failure).length;
+
+  window.ResQContextPanel.set("admin", {
+    totalCenters: state.centers.length,
+    availableCount,
+    busyCount,
+    offlineCount,
+    forcedFailures,
+    networkCongestion: Boolean(state.simulationState.network_congestion),
+    autoRerouting: Boolean(state.simulationState.auto_rerouting),
+  });
+}
+
 function renderCenterCard(center) {
   const card = document.createElement("article");
   const isFailed = Boolean(center.force_failure);
@@ -251,6 +272,7 @@ function renderCenters() {
   });
   renderSummaryPills();
   renderGraph();
+  publishAdminContext();
 }
 
 function renderRecentEvents(rows) {
@@ -276,6 +298,8 @@ function renderRecentEvents(rows) {
     item.textContent = `${new Date(entry.timestamp).toLocaleTimeString()} • ${entry.summary}`;
     adminMessageFeed.appendChild(item);
   });
+
+  publishAdminContext();
 }
 
 async function requestJson(url, options = {}) {
@@ -311,6 +335,7 @@ async function loadState() {
   renderCenters();
   renderRecentEvents(Array.isArray(logData) ? logData : []);
   setSyncState("Live", "good");
+  publishAdminContext();
 }
 
 async function updateCenter(centerId, payload) {

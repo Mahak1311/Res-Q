@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
     {% block head %}{% endblock %}
   </head>
-  <body>
+  <body data-page="{{ request.endpoint or 'home' }}" data-path="{{ request.path }}">
     <div class="bg-layer bg-layer-one"></div>
     <div class="bg-layer bg-layer-two"></div>
 
@@ -39,13 +39,17 @@
       </div>
     </header>
 
-    <main class="page-shell">{% block content %}{% endblock %}</main>
+    <div class="app-shell">
+      <aside class="context-panel glass-panel" id="contextPanel" aria-live="polite" aria-label="Context Panel"></aside>
+      <main class="page-shell">{% block content %}{% endblock %}</main>
+    </div>
 
     <footer class="site-footer">
       <p>Emergency Call Failure and Misrouting Detection System Prototype</p>
     </footer>
 
     <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/context-panel.js') }}"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

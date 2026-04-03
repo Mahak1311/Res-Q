@@ -48,10 +48,29 @@ function renderRows(rows) {
   });
 }
 
+function publishLogsContext(rows) {
+  if (!window.ResQContextPanel?.set) {
+    return;
+  }
+
+  const totalLogs = rows.length;
+  const failures = rows.filter((item) => item.final_status === "unresolved" || item.final_status === "failed").length;
+  const reroutes = rows.filter((item) => item.rerouted || item.final_status === "fallback_sent").length;
+
+  window.ResQContextPanel.set("logs", {
+    totalLogs,
+    failures,
+    reroutes,
+    lastActivity: rows[0]?.timestamp || null,
+    lastSummary: rows[0]?.summary || rows[0]?.details?.messages?.[rows[0]?.details?.messages?.length - 1] || "No activity yet.",
+  });
+}
+
 async function loadLogs() {
   const response = await fetch(`/api/logs?status=${activeFilter}`);
   const rows = await response.json();
   renderRows(rows);
+  publishLogsContext(Array.isArray(rows) ? rows : []);
 }
 
 if (filterWrap) {

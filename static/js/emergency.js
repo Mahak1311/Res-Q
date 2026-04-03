@@ -119,11 +119,36 @@ const TYPE_THEME = {
 };
 
 const activeTheme = TYPE_THEME[emergencyType] || TYPE_THEME.medical;
+const NEUTRAL_LOCATION = { lat: 20.5937, lng: 78.9629 };
 
-const randomBangalorePoint = () => ({
-  lat: 12.90 + Math.random() * 0.13,
-  lng: 77.53 + Math.random() * 0.19,
-});
+const emergencyContext = {
+  timeline: [],
+  callStatus: "Idle",
+  reroutingStatus: "Standby",
+  reroutingNote: "Routing decisions update live",
+  currentLocation: null,
+  locationText: "Awaiting browser position",
+  finalStatus: "connecting",
+  finalTone: "neutral",
+  callTone: "neutral",
+  reroutingTone: "neutral",
+};
+
+function publishEmergencyContext(overrides = {}) {
+  if (!window.ResQContextPanel?.set) {
+    return;
+  }
+
+  window.ResQContextPanel.set("emergency", {
+    ...emergencyContext,
+    ...overrides,
+  });
+}
+
+function pushEmergencyTimeline(label, detail, tone = "neutral") {
+  emergencyContext.timeline = [...emergencyContext.timeline, { label, detail: detail || label, tone }].slice(-4);
+  publishEmergencyContext();
+}
 
 function speakMessage(text) {
   if (!("speechSynthesis" in window)) {
@@ -147,6 +172,16 @@ function setFinalBadge(status) {
     finalBadge.classList.add("neutral");
   }
   finalBadge.textContent = status.replace("_", " ");
+
+  emergencyContext.finalStatus = status;
+  emergencyContext.finalTone = finalBadge.classList.contains("good")
+    ? "good"
+    : finalBadge.classList.contains("warn")
+      ? "warn"
+      : finalBadge.classList.contains("bad")
+        ? "bad"
+        : "neutral";
+  publishEmergencyContext();
 }
 
 function setLoader(isActive, hintText = "") {
@@ -157,6 +192,9 @@ function setLoader(isActive, hintText = "") {
   if (runtimeHint && hintText) {
     runtimeHint.textContent = hintText;
   }
+  emergencyContext.reroutingStatus = isActive ? hintText || "Processing" : "Connected";
+  emergencyContext.reroutingNote = hintText || emergencyContext.reroutingNote;
+  publishEmergencyContext();
 }
 
 function addMessage(message, type = "neutral") {
@@ -177,6 +215,8 @@ function setStrength(strength) {
   } else {
     strengthFill.classList.add("signal-low");
   }
+
+  publishEmergencyContext();
 }
 
 function normalizeReason(reason) {
@@ -559,6 +599,12 @@ async function runFlow(data, location) {
       distance_km: attempt.distance_km,
     };
 
+    if (attempt.attempt > 1) {
+      emergencyContext.reroutingStatus = `Rerouting to ${center.name}`;
+      emergencyContext.reroutingNote = `Attempt ${attempt.attempt} of ${visualAttempts.length}`;
+      pushEmergencyTimeline("Rerouted", `Trying ${center.name}`, "warn");
+    }
+
     const marker = centerMarkers.get(center.id);
     if (marker) {
       styleCenterMarker(marker, "active");
@@ -599,6 +645,10 @@ async function runFlow(data, location) {
       statusText.textContent = activeTheme.connectedText;
       setLoader(false, "Connection established.");
       setFinalBadge("connected");
+      emergencyContext.callStatus = "Connected";
+      emergencyContext.reroutingStatus = `Connected to ${center.name}`;
+      emergencyContext.reroutingNote = `${center.name} accepted the call`;
+      pushEmergencyTimeline("Connected", `${center.name} accepted the call`, "active");
       speakMessage(activeTheme.connectedText);
       updateModeMetrics({
         attemptNumber: attempt.attempt,
@@ -617,10 +667,14 @@ async function runFlow(data, location) {
 
     addMessage(activeTheme.noResponseText, "warn");
     statusText.textContent = activeTheme.noResponseText;
+  emergencyContext.callStatus = "Failed";
+  pushEmergencyTimeline("Failed", `${center.name} did not respond`, "bad");
     await sleep(STEP_DELAY_MS.short);
 
     addMessage(activeTheme.retryText, "warn");
     statusText.textContent = activeTheme.retryText;
+  emergencyContext.reroutingStatus = `Retrying after ${center.name}`;
+  emergencyContext.reroutingNote = "Searching next center";
     await sleep(STEP_DELAY_MS.short);
 
     addMessage(activeTheme.rerouteText, "warn");
@@ -634,6 +688,10 @@ async function runFlow(data, location) {
   setLoader(true, "No center accepted voice route. Sending fallback...");
   statusText.textContent = `No available ${activeTheme.centerPluralLabel}`;
   addMessage(`No available ${activeTheme.centerPluralLabel}`, "bad");
+  emergencyContext.callStatus = "Failed";
+  emergencyContext.reroutingStatus = "Fallback alert in progress";
+  emergencyContext.reroutingNote = `No available ${activeTheme.centerPluralLabel}`;
+  pushEmergencyTimeline("Fallback", "SMS / internet alert sent", "warn");
 
   if (data.fallback) {
     addMessage(`Sending fallback alert (${data.fallback.channel})`, "warn");
@@ -656,7 +714,7 @@ function getLocation() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       console.warn("Geolocation not supported by browser");
-      resolve({ ...randomBangalorePoint(), source: "mock" });
+      resolve({ ...NEUTRAL_LOCATION, source: "default" });
       return;
     }
 
@@ -668,41 +726,17 @@ function getLocation() {
           source: "geolocation",
         });
       },
-      (error) => {
-        console.warn("Geolocation failed:", error.message);
-        // Try to get location from IP as fallback
-        fetchLocationFromIP().then(ipLocation => {
-          resolve(ipLocation);
-        }).catch(() => {
-          // Final fallback to Bangalore
-          resolve({ ...randomBangalorePoint(), source: "mock" });
-        });
+      () => {
+        console.warn("Geolocation failed: falling back to neutral center");
+        resolve({ ...NEUTRAL_LOCATION, source: "default" });
       },
-      { 
-        timeout: 15000, // Increased timeout to 15 seconds
+      {
+        timeout: 15000,
         enableHighAccuracy: true,
-        maximumAge: 60000 // Accept cached location up to 1 minute old
+        maximumAge: 60000,
       }
     );
   });
-}
-
-async function fetchLocationFromIP() {
-  try {
-    const response = await fetch('https://ipapi.co/json/');
-    const data = await response.json();
-    if (data.latitude && data.longitude) {
-      return {
-        lat: data.latitude,
-        lng: data.longitude,
-        source: "ip-geolocation"
-      };
-    }
-    throw new Error("IP geolocation failed");
-  } catch (error) {
-    console.warn("IP geolocation failed:", error);
-    throw error;
-  }
 }
 
 function setActiveMode(mode) {
@@ -714,6 +748,8 @@ function setActiveMode(mode) {
     const channelLabel = mode === "voip" ? "VoIP call selected" : "Mobile call selected";
     callModeText.textContent = `${channelLabel} • ${emergencyModeLabel}`;
   }
+
+  publishEmergencyContext({ callMode: activeMode });
 }
 
 async function triggerEmergency() {
@@ -724,9 +760,17 @@ async function triggerEmergency() {
   attemptTableBody.innerHTML = "";
   setFinalBadge("connecting");
   setLoader(true, "Collecting location and network data...");
+  emergencyContext.timeline = [{ label: "Call initiated", detail: "SOS request triggered", tone: "active" }];
+  emergencyContext.callStatus = "Calling";
+  emergencyContext.reroutingStatus = "Collecting location";
+  emergencyContext.reroutingNote = "Waiting for browser position";
+  publishEmergencyContext();
 
   const location = await getLocation();
   locationText.textContent = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)} (${location.source})`;
+  emergencyContext.currentLocation = location;
+  emergencyContext.locationText = locationText.textContent;
+  pushEmergencyTimeline("Location acquired", locationText.textContent, "neutral");
   if (runtimeHint) {
     runtimeHint.textContent = `${emergencyDescription} in progress...`;
   }
@@ -755,6 +799,8 @@ async function triggerEmergency() {
     addMessage("System error while simulating emergency call.", "bad");
     setFinalBadge("unresolved");
     setLoader(false, "Emergency request failed.");
+    emergencyContext.callStatus = "Failed";
+    pushEmergencyTimeline("Call failed", "Emergency request could not be processed", "bad");
     sosButton.disabled = false;
     sosButton.classList.remove("active");
     return;

@@ -3,8 +3,8 @@
     "id": "EC-101",
     "name": "Central Command Hub",
     "type": "hospital",
-    "lat": 12.9716,
-    "lng": 77.5946,
+    "lat": 20.5937,
+    "lng": 78.9629,
     "capacity": 24,
     "load": 13
   },
