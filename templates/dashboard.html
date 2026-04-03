@@ -23,9 +23,8 @@
     </div>
 
     <nav class="sidebar-nav" aria-label="Dashboard navigation">
-      <a class="sidebar-link" href="{{ url_for('main_home') }}">🏠 Home</a>
-      <a class="sidebar-link" href="{{ url_for('emergency') }}">🚨 Emergency</a>
       <a class="sidebar-link active" href="{{ url_for('dashboard') }}">🛰️ Dashboard</a>
+      <a class="sidebar-link" href="{{ url_for('emergency') }}">🚨 Emergency</a>
       <a class="sidebar-link" href="{{ url_for('logs') }}">📒 Logs</a>
       <a class="sidebar-link" href="{{ url_for('about') }}">ℹ️ About</a>
     </nav>
@@ -44,8 +43,8 @@
   <main class="dashboard-center glass-panel">
     <div class="dashboard-topline">
       <div>
-        <p class="eyebrow">Authority Monitoring</p>
-        <h1>Live Emergency Request Dashboard</h1>
+        <p class="eyebrow">Live Command Center</p>
+        <h1>Live Dashboard</h1>
       </div>
       <div class="dashboard-top-badges">
         <span class="badge badge-teal">Live Map</span>
@@ -54,6 +53,11 @@
     </div>
 
     <div class="map-shell">
+      <div class="map-legend glass-panel">
+        <span class="legend-item"><i class="legend-dot user"></i>User</span>
+        <span class="legend-item"><i class="legend-dot center"></i>Center</span>
+        <span class="legend-item"><i class="legend-dot route"></i>Route</span>
+      </div>
       <div id="map"></div>
       <article class="map-float-card glass-panel" id="focusCard">
         <p class="mini-label">Current Incident</p>
@@ -120,6 +124,74 @@
       </div>
     </section>
   </aside>
+</section>
+
+<section class="core-features-panel glass-panel reveal delay-2">
+  <div class="section-head">
+    <div>
+      <p class="eyebrow">Core Features</p>
+      <h2>Emergency Intelligence Stack</h2>
+    </div>
+    <span class="status-pill active">Operational</span>
+  </div>
+
+  <div class="feature-grid">
+    <button type="button" class="feature-card feature-trigger" data-action="failure-detection" data-target="/emergency">
+      <span class="feature-icon">📵</span>
+      <div>
+        <strong>Failure Detection</strong>
+        <p>Detects drop, busy, and no-response events instantly.</p>
+      </div>
+    </button>
+
+    <button type="button" class="feature-card feature-trigger" data-action="auto-rerouting" data-target="/emergency">
+      <span class="feature-icon">🔁</span>
+      <div>
+        <strong>Auto Rerouting</strong>
+        <p>Switches calls to alternate emergency centers automatically.</p>
+      </div>
+    </button>
+
+    <button type="button" class="feature-card feature-trigger" data-action="location-correction" data-target="/dashboard">
+      <span class="feature-icon">📍</span>
+      <div>
+        <strong>Location Correction</strong>
+        <p>Verifies caller location with GPS and network signals.</p>
+      </div>
+    </button>
+
+    <button type="button" class="feature-card feature-trigger" data-action="nearest-center" data-target="/dashboard">
+      <span class="feature-icon">📡</span>
+      <div>
+        <strong>Nearest Center</strong>
+        <p>Selects the closest available emergency response center.</p>
+      </div>
+    </button>
+
+    <button type="button" class="feature-card feature-trigger" data-action="redundancy-handling" data-target="/emergency">
+      <span class="feature-icon">🛡️</span>
+      <div>
+        <strong>Redundancy Handling</strong>
+        <p>Falls back to SMS and internet alerts during congestion.</p>
+      </div>
+    </button>
+
+    <button type="button" class="feature-card feature-trigger" data-action="event-logging" data-target="/logs">
+      <span class="feature-icon">🧾</span>
+      <div>
+        <strong>Event Logging</strong>
+        <p>Stores audit-ready logs for failure analysis and review.</p>
+      </div>
+    </button>
+
+    <button type="button" class="feature-card feature-trigger" data-action="mobile-voip" data-target="/emergency">
+      <span class="feature-icon">📱</span>
+      <div>
+        <strong>Mobile + VoIP</strong>
+        <p>Compatible with mobile and VoIP-based emergency calls.</p>
+      </div>
+    </button>
+  </div>
 </section>
 {% endblock %}
 

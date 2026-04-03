@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "static" / "data"
@@ -20,6 +20,7 @@ app = Flask(__name__)
 STORE_LOCK = threading.Lock()
 CALL_LOGS: deque[dict[str, Any]] = deque(maxlen=2000)
 LIVE_REQUESTS: deque[dict[str, Any]] = deque(maxlen=400)
+UI_ACTIONS: deque[dict[str, Any]] = deque(maxlen=600)
 
 FAILURE_ZONES = [
     {"name": "Tunnel Corridor", "lat": 12.9497, "lng": 77.6208, "weight": 0.42},
@@ -263,14 +264,26 @@ def log_event(entry: dict[str, Any]) -> None:
         LIVE_REQUESTS.appendleft(entry)
 
 
+def log_ui_action(action: dict[str, Any]) -> None:
+    with STORE_LOCK:
+        UI_ACTIONS.appendleft(
+            {
+                "timestamp": now_iso(),
+                "action": action.get("action", "unknown"),
+                "target": action.get("target", ""),
+                "source": action.get("source", "dashboard"),
+            }
+        )
+
+
 @app.route("/")
 def home() -> str:
-    return render_template("intro.html")
+    return render_template("dashboard.html")
 
 
 @app.route("/home")
 def main_home() -> str:
-    return render_template("home.html")
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/emergency")
@@ -373,6 +386,13 @@ def api_logs():
         logs_snapshot = [item for item in logs_snapshot if item["final_status"] in allowed]
 
     return jsonify(logs_snapshot)
+
+
+@app.route("/api/ui/feature-click", methods=["POST"])
+def api_ui_feature_click():
+    payload = request.get_json(silent=True) or {}
+    log_ui_action(payload)
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":

@@ -18,9 +18,10 @@ const statusChip = (status) => {
 function initMap() {
   map = L.map("map").setView([12.9716, 77.5946], 12);
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
     maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors",
+    subdomains: "abcd",
+    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
   }).addTo(map);
 
   centersLayer = L.layerGroup().addTo(map);
@@ -42,6 +43,12 @@ function formatStatus(status) {
   if (status === "fallback_sent") return { label: "Rerouted", className: "warn" };
   if (status === "unresolved") return { label: "Failed", className: "bad" };
   return { label: "Calling", className: "active" };
+}
+
+function activityBadge(status) {
+  if (status === "connected") return { label: "Resolved", className: "good" };
+  if (status === "unresolved") return { label: "Failed", className: "bad" };
+  return { label: "Active", className: "active" };
 }
 
 function estimateEta(distanceKm, status) {
@@ -77,7 +84,7 @@ function renderFocusCard(request) {
 
   const status = formatStatus(request.final_status);
   const target = request.final_center || request.attempts[request.attempts.length - 1];
-  const userLabel = `${request.source || "mobile".toUpperCase()}-${request.request_id.slice(-4)}`;
+  const userLabel = `${String(request.source || "mobile").toUpperCase()}-${request.request_id.slice(-4)}`;
   const distance = target?.distance_km ?? 0;
 
   focusUser.textContent = userLabel;
@@ -96,7 +103,7 @@ function renderActivity(requests) {
     const item = document.createElement("article");
     item.className = "activity-item";
 
-    const status = formatStatus(req.final_status);
+    const status = activityBadge(req.final_status);
     const location = `${req.user_lat?.toFixed(3) ?? "--"}, ${req.user_lng?.toFixed(3) ?? "--"}`;
     const progress = req.final_status === "connected" ? 100 : req.final_status === "fallback_sent" ? 72 : 40;
 
@@ -105,8 +112,8 @@ function renderActivity(requests) {
         <span class="status-pill ${status.className}">${status.label}</span>
         <small>${new Date(req.created_at).toLocaleTimeString()}</small>
       </div>
-      <strong>Caller ${req.request_id.slice(-4)}</strong>
-      <small>${location} • ${req.source || "mobile"}</small>
+      <strong>${req.request_id.slice(-4)}</strong>
+      <small>${location} • ${String(req.source || "mobile").toUpperCase()}</small>
       <div class="progress-bar"><span style="width:${progress}%"></span></div>
     `;
     feed.appendChild(item);
@@ -188,6 +195,7 @@ function renderMapData(data) {
           weight: index === 0 ? 4 : 2,
           opacity: index === 0 ? 0.86 : 0.42,
           dashArray: attemptIndex > 0 ? "8,8" : undefined,
+          className: index === 0 && attemptIndex === req.attempts.length - 1 ? "route-line-anim" : "",
         }
       ).addTo(routeLayer);
     });
@@ -226,7 +234,35 @@ function wireSosButtons() {
   });
 }
 
+function wireFeatureButtons() {
+  const buttons = document.querySelectorAll(".feature-trigger");
+  buttons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = button.dataset.action || "unknown";
+      const target = button.dataset.target || "/dashboard";
+
+      document.querySelectorAll(".feature-trigger").forEach((item) => item.classList.remove("active-feature"));
+      button.classList.add("active-feature");
+
+      try {
+        await fetch("/api/ui/feature-click", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, target, source: "dashboard" }),
+        });
+      } catch (_) {
+        // Navigation still continues even if logging is unavailable.
+      }
+
+      if (target && target !== window.location.pathname) {
+        window.location.href = target;
+      }
+    });
+  });
+}
+
 initMap();
 wireSosButtons();
+wireFeatureButtons();
 refreshDashboard();
 setInterval(refreshDashboard, 4000);
