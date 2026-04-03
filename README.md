@@ -32,6 +32,7 @@ Res Q is a full-stack hackathon prototype that simulates emergency call failures
 - Backend: Flask (Python)
 - Mapping: OpenStreetMap + Leaflet.js
 - Data: JSON mock datasets
+- Persistence: SQLite (auto-created at runtime)
 
 ## Run Locally
 
@@ -51,6 +52,56 @@ python app.py
 4. Open:
 
 - http://127.0.0.1:5000/
+
+## Database (Now Enabled)
+
+The app now persists emergency data to SQLite so records survive restarts.
+
+- Default DB file: `safetytech.db` (project root)
+- Optional override: set environment variable `DATABASE_PATH`
+- SQL schema file: `db/schema.sql`
+
+### Stored Tables
+
+- `emergency_requests`: one row per emergency event
+- `call_attempts`: one row per routing attempt
+- `fallback_events`: fallback delivery details (`sms` / `internet_alert`)
+- `emergency_centers`: synchronized center metadata
+- `ui_actions`: dashboard/emergency page interactions
+
+### Notes
+
+- Existing in-memory queues are still used for live UI responsiveness.
+- If app memory is empty after restart, dashboard/log APIs read from SQLite.
+
+## CDR CSV Import
+
+You can now import CDR-like records directly into the app database.
+
+- Endpoint: `POST /api/cdr/import`
+- Modes:
+  - Multipart upload field: `cdr_file`
+  - JSON body with file path: `{ "file_path": "static/data/cdr_import_template.csv" }`
+
+### Minimal CSV Columns
+
+- `request_id`
+- `created_at`
+- `source`
+- `lat`
+- `lng`
+- `network_strength`
+- `final_status` (`connected`, `fallback_sent`, `unresolved`)
+
+Optional columns are supported, including: `rerouted`, `tower_id`, `provider`, `failure_reason`, `fallback_channel`, `fallback_status`, `attempts_json`, `fallback_json`, `messages_json`.
+
+Starter file: `static/data/cdr_import_template.csv`
+
+### Example Import (PowerShell)
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/api/cdr/import -ContentType "application/json" -Body '{"file_path":"static/data/cdr_import_template.csv"}'
+```
 
 ## Project Structure
 

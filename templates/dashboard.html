@@ -25,6 +25,8 @@
     <nav class="sidebar-nav" aria-label="Dashboard navigation">
       <a class="sidebar-link active" href="{{ url_for('dashboard') }}">🛰️ Dashboard</a>
       <a class="sidebar-link" href="{{ url_for('emergency') }}">🚨 Emergency</a>
+      <a class="sidebar-link" href="{{ url_for('admin') }}">⚙️ Admin Control</a>
+      <a class="sidebar-link" href="{{ url_for('nearby_helpers') }}">👥 Nearby Helpers</a>
       <a class="sidebar-link" href="{{ url_for('logs') }}">📒 Logs</a>
       <a class="sidebar-link" href="{{ url_for('about') }}">ℹ️ About</a>
     </nav>
@@ -49,6 +51,7 @@
       <div class="dashboard-top-badges">
         <span class="badge badge-teal">Live Map</span>
         <span class="badge badge-green">Route Tracking</span>
+        <span id="simulationBadge" class="badge badge-amber">Simulation Ready</span>
       </div>
     </div>
 

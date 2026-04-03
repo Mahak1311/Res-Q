@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+
+{% block title %}Res Q | {{ emergency_title }}{% endblock %}
+
+{% block head %}
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+{% endblock %}
+
+{% block content %}
+<section
+  id="emergencyConsole"
+  class="card emergency-layout {{ accent_class }} reveal"
+  data-emergency-type="{{ emergency_type }}"
+  data-mode-label="{{ mode_icon }} {{ mode_label }}"
+  data-mode-description="{{ mode_description }}"
+>
+  <div class="sos-panel">
+    <p class="eyebrow">{{ mode_icon }} Emergency Trigger</p>
+    <h1>{{ emergency_title }}</h1>
+    <p class="mode-active-badge">{{ mode_icon }} {{ mode_label }}</p>
+    <div class="mode-picker" aria-label="Call mode selector">
+      <button type="button" class="mode-btn active" data-mode="mobile">Mobile Call</button>
+      <button type="button" class="mode-btn" data-mode="voip">VoIP Call</button>
+    </div>
+    <p class="compat-note">{{ mode_description }}.</p>
+    <button id="sosButton" class="sos-button" type="button">SOS</button>
+    <p class="muted">Press to simulate call attempt, failure detection, rerouting, and fallback.</p>
+
+    <div class="network-widget">
+      <p>Network Strength</p>
+      <div class="strength-bar"><span id="strengthFill"></span></div>
+      <strong id="strengthValue">--%</strong>
+    </div>
+
+    <div class="location-box">
+      <p>Detected Location</p>
+      <div id="locationText">Awaiting location...</div>
+    </div>
+
+    <div class="location-box">
+      <p>Call Mode</p>
+      <div id="callModeText">Mobile call selected</div>
+    </div>
+
+    <div class="mode-metrics">
+      {% if emergency_type == 'medical' %}
+      <article class="metric-mini">
+        <p class="mini-label">Ambulance ETA</p>
+        <strong id="metricOneValue">-- min</strong>
+      </article>
+      <article class="metric-mini">
+        <p class="mini-label">Patient Status</p>
+        <strong id="metricTwoValue">Awaiting triage</strong>
+      </article>
+      {% elif emergency_type == 'police' %}
+      <article class="metric-mini">
+        <p class="mini-label">Incident Severity</p>
+        <strong id="metricOneValue">--</strong>
+      </article>
+      <article class="metric-mini">
+        <p class="mini-label">Units Dispatched</p>
+        <strong id="metricTwoValue">0</strong>
+      </article>
+      {% else %}
+      <article class="metric-mini">
+        <p class="mini-label">Fire Intensity</p>
+        <strong id="metricOneValue">--</strong>
+      </article>
+      <article class="metric-mini">
+        <p class="mini-label">Resources Deployed</p>
+        <strong id="metricTwoValue">0 units / 0 crew</strong>
+      </article>
+      {% endif %}
+    </div>
+
+    {% if emergency_type == 'medical' %}
+    <div class="mode-brief">
+      <p class="mini-label">Clinical Protocol</p>
+      <h3>Triage + Ambulance Dispatch</h3>
+      <ul class="mode-brief-list">
+        <li>Prioritize nearest trauma-ready hospitals.</li>
+        <li>Escalate to backup care center if no response.</li>
+        <li>Keep channel open for ambulance ETA updates.</li>
+      </ul>
+    </div>
+    {% elif emergency_type == 'police' %}
+    <div class="mode-brief">
+      <p class="mini-label">Security Protocol</p>
+      <h3>Incident Control Dispatch</h3>
+      <ul class="mode-brief-list">
+        <li>Route to nearest law enforcement control unit.</li>
+        <li>Escalate to next station on communication failure.</li>
+        <li>Maintain event channel for security updates.</li>
+      </ul>
+    </div>
+    {% else %}
+    <div class="mode-brief">
+      <p class="mini-label">Fire Protocol</p>
+      <h3>Suppression + Rescue Dispatch</h3>
+      <ul class="mode-brief-list">
+        <li>Prioritize nearest fire response station.</li>
+        <li>Reroute immediately if station channel is unavailable.</li>
+        <li>Track continuous rescue coordination updates.</li>
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="status-panel">
+    <div class="status-header">
+      <h2>Call Status</h2>
+      <span id="finalBadge" class="status-badge neutral">idle</span>
+    </div>
+    <div class="nearby-cta-row">
+      <a class="btn btn-secondary" href="{{ url_for('nearby_helpers') }}">Open Nearby Helpers</a>
+    </div>
+    <p id="statusText" class="status-text">Ready to trigger emergency workflow.</p>
+    <div class="status-runtime" aria-live="polite">
+      <span id="statusLoader" class="status-loader" hidden></span>
+      <span id="runtimeHint" class="runtime-hint">Monitoring live emergency routing...</span>
+    </div>
+
+    <div class="emergency-map-card">
+      <div class="map-legend emergency-legend glass-panel">
+        <span class="legend-item"><i class="legend-dot user"></i>User</span>
+        {% if emergency_type == 'medical' %}
+        <span class="legend-item"><i class="legend-dot center"></i>Hospital</span>
+        {% elif emergency_type == 'police' %}
+        <span class="legend-item"><i class="legend-dot center"></i>Police Station</span>
+        {% else %}
+        <span class="legend-item"><i class="legend-dot center"></i>Fire Station</span>
+        {% endif %}
+        <span class="legend-item"><i class="legend-dot route"></i>Route</span>
+      </div>
+      <div id="emergencyMap"></div>
+    </div>
+
+    <ul id="messageFeed" class="message-feed"></ul>
+
+    <h3>Routing Attempts</h3>
+    <div class="table-wrap">
+      <table class="data-table" id="attemptTable">
+        <thead>
+          <tr>
+            <th>Attempt</th>
+            <th>
+              {% if emergency_type == 'medical' %}
+              Hospital
+              {% elif emergency_type == 'police' %}
+              Police Station
+              {% else %}
+              Fire Station
+              {% endif %}
+            </th>
+            <th>Distance</th>
+            <th>Status</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+<script src="{{ url_for('static', filename='js/emergency.js') }}"></script>
+{% endblock %}

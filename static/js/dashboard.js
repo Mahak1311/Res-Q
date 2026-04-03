@@ -7,6 +7,10 @@ let heatLayer;
 const dashboardState = {
   latestRequest: null,
   totalRequests: 0,
+  simulationState: {
+    network_congestion: false,
+    auto_rerouting: true,
+  },
 };
 
 const statusChip = (status) => {
@@ -63,6 +67,24 @@ function renderStats(summary) {
   document.getElementById("statFailed").textContent = summary.unresolved;
   document.getElementById("statRerouted").textContent = summary.rerouted;
   document.getElementById("statResponse").textContent = `${Math.max(2, Math.round(12 - summary.connected * 0.4))}s`;
+}
+
+function renderSimulationBadge() {
+  const badge = document.getElementById("simulationBadge");
+  if (!badge) {
+    return;
+  }
+
+  const congestion = dashboardState.simulationState.network_congestion;
+  const rerouting = dashboardState.simulationState.auto_rerouting;
+  badge.textContent = congestion
+    ? rerouting
+      ? "Congestion On · Auto Rerouting"
+      : "Congestion On · Manual Routing"
+    : rerouting
+      ? "Simulation Ready"
+      : "Rerouting Paused";
+  badge.className = `badge ${congestion ? "badge-yellow" : rerouting ? "badge-green" : "badge-teal"}`;
 }
 
 function renderFocusCard(request) {
@@ -146,12 +168,17 @@ function renderMapData(data) {
   const centersById = new Map(data.centers.map((c) => [c.id, c]));
 
   data.centers.forEach((center) => {
+    const isFailed = Boolean(center.force_failure);
+    const isBusy = Boolean(center.overload) || center.runtime_status === "busy";
+    const color = isFailed ? "#ef4444" : isBusy ? "#facc15" : "#22c55e";
     const marker = L.circleMarker([center.lat, center.lng], {
       radius: 8,
-      color: "#15a34a",
+      color,
       fillOpacity: 0.75,
       weight: 2,
-    }).bindPopup(`<strong>${center.name}</strong><br/>Capacity: ${center.capacity}<br/>Load: ${center.load}`);
+    }).bindPopup(
+      `<strong>${center.name}</strong><br/>Status: ${center.runtime_status || "available"}<br/>Load: ${center.effective_load}/${center.capacity}<br/>Level: ${center.load_level || "low"}`
+    );
     marker.addTo(centersLayer);
   });
 
@@ -218,11 +245,13 @@ async function refreshDashboard() {
   const response = await fetch("/api/dashboard");
   const data = await response.json();
   dashboardState.latestRequest = data.requests[0] || null;
+  dashboardState.simulationState = data.simulation_state || dashboardState.simulationState;
   renderStats(data.summary);
   renderFocusCard(dashboardState.latestRequest);
   renderActivity(data.requests);
   renderTable(data.requests);
   renderMapData(data);
+  renderSimulationBadge();
 }
 
 function wireSosButtons() {

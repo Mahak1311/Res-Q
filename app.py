@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import csv
 import json
 import math
-import random
+import os
+import re
+import sqlite3
 import threading
+from urllib import error as url_error
+from urllib import parse as url_parse
+from urllib import request as url_request
 from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -14,13 +20,56 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "static" / "data"
+DB_PATH = Path(os.getenv("DATABASE_PATH", str(BASE_DIR / "safetytech.db")))
 
 app = Flask(__name__)
+
+EMERGENCY_TYPE_CONFIG: dict[str, dict[str, str]] = {
+    "medical": {
+        "center_type": "hospital",
+        "title": "Medical Emergency Response",
+        "icon": "🚑",
+        "mode_label": "Medical Mode Active",
+        "accent_class": "mode-medical",
+        "description": "Hospital and ambulance routing workflow",
+    },
+    "police": {
+        "center_type": "police",
+        "title": "Police Emergency Response",
+        "icon": "🚓",
+        "mode_label": "Police Mode Active",
+        "accent_class": "mode-police",
+        "description": "Crime and security dispatch routing workflow",
+    },
+    "fire": {
+        "center_type": "fire",
+        "title": "Fire Emergency Response",
+        "icon": "🔥",
+        "mode_label": "Fire Mode Active",
+        "accent_class": "mode-fire",
+        "description": "Fire brigade and rescue dispatch workflow",
+    },
+}
 
 STORE_LOCK = threading.Lock()
 CALL_LOGS: deque[dict[str, Any]] = deque(maxlen=2000)
 LIVE_REQUESTS: deque[dict[str, Any]] = deque(maxlen=400)
 UI_ACTIONS: deque[dict[str, Any]] = deque(maxlen=600)
+SIMULATION_EVENTS: deque[dict[str, Any]] = deque(maxlen=600)
+CENTER_CONTROL_STATE: dict[str, dict[str, Any]] = {}
+SIMULATION_STATE: dict[str, Any] = {
+    "network_congestion": False,
+    "auto_rerouting": True,
+}
+NEARBY_HELPER_STATE: dict[str, Any] = {
+    "radius_m": 1000,
+    "auto_alert_on_sos": True,
+    "sound_alert": True,
+    "current_location": {"lat": 12.9716, "lng": 77.5946},
+    "emergency_location": {"lat": 12.9698, "lng": 77.6061},
+    "last_alert": None,
+}
+ALLOWED_CENTER_STATUS = {"available", "busy", "offline"}
 
 FAILURE_ZONES = [
     {"name": "Tunnel Corridor", "lat": 12.9497, "lng": 77.6208, "weight": 0.42},
@@ -37,13 +86,603 @@ CELL_TOWERS = [
 ]
 
 
+def get_db_connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    with get_db_connection() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS emergency_centers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT,
+                lat REAL NOT NULL,
+                lng REAL NOT NULL,
+                capacity INTEGER DEFAULT 0,
+                load INTEGER DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS emergency_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                source TEXT NOT NULL,
+                final_status TEXT NOT NULL,
+                rerouted INTEGER NOT NULL,
+                network_strength INTEGER NOT NULL,
+                user_lat REAL NOT NULL,
+                user_lng REAL NOT NULL,
+                location_json TEXT NOT NULL,
+                network_json TEXT NOT NULL,
+                final_center_json TEXT,
+                attempts_json TEXT NOT NULL,
+                fallback_json TEXT,
+                messages_json TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS call_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL,
+                attempt_number INTEGER NOT NULL,
+                center_id TEXT,
+                center_name TEXT,
+                lat REAL,
+                lng REAL,
+                distance_km REAL,
+                status TEXT NOT NULL,
+                reason TEXT,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (request_id) REFERENCES emergency_requests(request_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS fallback_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                status TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (request_id) REFERENCES emergency_requests(request_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS ui_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                action TEXT NOT NULL,
+                target TEXT,
+                source TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_emergency_requests_created_at ON emergency_requests(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_emergency_requests_final_status ON emergency_requests(final_status);
+            CREATE INDEX IF NOT EXISTS idx_call_attempts_request_id ON call_attempts(request_id);
+            CREATE INDEX IF NOT EXISTS idx_ui_actions_timestamp ON ui_actions(timestamp DESC);
+            """
+        )
+
+
+def sync_emergency_centers() -> None:
+    with get_db_connection() as conn:
+        now = now_iso()
+        conn.executemany(
+            """
+            INSERT INTO emergency_centers (id, name, type, lat, lng, capacity, load, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                type=excluded.type,
+                lat=excluded.lat,
+                lng=excluded.lng,
+                capacity=excluded.capacity,
+                load=excluded.load,
+                updated_at=excluded.updated_at
+            """,
+            [
+                (
+                    center["id"],
+                    center.get("name", "Unknown Center"),
+                    center.get("type", "emergency"),
+                    center["lat"],
+                    center["lng"],
+                    center.get("capacity", 0),
+                    center.get("load", 0),
+                    now,
+                )
+                for center in EMERGENCY_CENTERS
+            ],
+        )
+
+
+def write_event_to_db(entry: dict[str, Any]) -> None:
+    fallback_json = json.dumps(entry["fallback"]) if entry.get("fallback") else None
+    final_center_json = json.dumps(entry["final_center"]) if entry.get("final_center") else None
+
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO emergency_requests (
+                request_id,
+                created_at,
+                source,
+                final_status,
+                rerouted,
+                network_strength,
+                user_lat,
+                user_lng,
+                location_json,
+                network_json,
+                final_center_json,
+                attempts_json,
+                fallback_json,
+                messages_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry["request_id"],
+                entry["created_at"],
+                entry["source"],
+                entry["final_status"],
+                1 if entry["rerouted"] else 0,
+                int(entry["network"]["strength"]),
+                float(entry["location"]["corrected"]["lat"]),
+                float(entry["location"]["corrected"]["lng"]),
+                json.dumps(entry["location"]),
+                json.dumps(entry["network"]),
+                final_center_json,
+                json.dumps(entry["attempts"]),
+                fallback_json,
+                json.dumps(entry["messages"]),
+            ),
+        )
+
+        conn.execute("DELETE FROM call_attempts WHERE request_id = ?", (entry["request_id"],))
+        conn.executemany(
+            """
+            INSERT INTO call_attempts (
+                request_id,
+                attempt_number,
+                center_id,
+                center_name,
+                lat,
+                lng,
+                distance_km,
+                status,
+                reason,
+                timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    entry["request_id"],
+                    attempt["attempt"],
+                    attempt.get("center_id"),
+                    attempt.get("center_name"),
+                    attempt.get("lat"),
+                    attempt.get("lng"),
+                    attempt.get("distance_km"),
+                    attempt["status"],
+                    attempt.get("reason"),
+                    attempt["timestamp"],
+                )
+                for attempt in entry["attempts"]
+            ],
+        )
+
+        conn.execute("DELETE FROM fallback_events WHERE request_id = ?", (entry["request_id"],))
+        if entry.get("fallback"):
+            conn.execute(
+                """
+                INSERT INTO fallback_events (request_id, channel, status, timestamp)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    entry["request_id"],
+                    entry["fallback"]["channel"],
+                    entry["fallback"]["status"],
+                    entry["fallback"]["timestamp"],
+                ),
+            )
+
+
+def fetch_recent_requests(limit: int = 20) -> list[dict[str, Any]]:
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT request_id, created_at, source, final_status, rerouted, location_json,
+                   network_json, attempts_json, final_center_json, fallback_json, messages_json
+            FROM emergency_requests
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    requests: list[dict[str, Any]] = []
+    for row in rows:
+        requests.append(
+            {
+                "request_id": row["request_id"],
+                "created_at": row["created_at"],
+                "source": row["source"],
+                "location": json.loads(row["location_json"]),
+                "network": json.loads(row["network_json"]),
+                "attempts": json.loads(row["attempts_json"]),
+                "rerouted": bool(row["rerouted"]),
+                "final_status": row["final_status"],
+                "final_center": json.loads(row["final_center_json"]) if row["final_center_json"] else None,
+                "fallback": json.loads(row["fallback_json"]) if row["fallback_json"] else None,
+                "messages": json.loads(row["messages_json"]),
+            }
+        )
+    return requests
+
+
+def fetch_logs_from_db(status_filter: str = "all") -> list[dict[str, Any]]:
+    query = """
+        SELECT request_id, created_at, source, final_status, rerouted, network_strength,
+               user_lat, user_lng, attempts_json, fallback_json, messages_json
+        FROM emergency_requests
+    """
+    params: list[Any] = []
+
+    if status_filter != "all":
+        if status_filter == "failed":
+            query += " WHERE final_status IN (?, ?)"
+            params.extend(["fallback_sent", "unresolved"])
+        elif status_filter == "success":
+            query += " WHERE final_status = ?"
+            params.append("connected")
+        elif status_filter == "rerouted":
+            query += " WHERE rerouted = 1"
+        else:
+            query += " WHERE final_status = ?"
+            params.append(status_filter)
+
+    query += " ORDER BY created_at DESC LIMIT 200"
+
+    with get_db_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [
+        {
+            "timestamp": row["created_at"],
+            "request_id": row["request_id"],
+            "source": row["source"],
+            "final_status": row["final_status"],
+            "rerouted": bool(row["rerouted"]),
+            "network_strength": row["network_strength"],
+            "user_lat": row["user_lat"],
+            "user_lng": row["user_lng"],
+            "details": {
+                "attempts": json.loads(row["attempts_json"]),
+                "fallback": json.loads(row["fallback_json"]) if row["fallback_json"] else None,
+                "messages": json.loads(row["messages_json"]),
+            },
+        }
+        for row in rows
+    ]
+
+
+def parse_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "n"}:
+        return False
+    return default
+
+
+def normalize_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"connected", "success", "ok"}:
+        return "connected"
+    if normalized in {"fallback_sent", "fallback", "fallback-ok"}:
+        return "fallback_sent"
+    if normalized in {"unresolved", "failed", "error"}:
+        return "unresolved"
+    return "unresolved"
+
+
+def build_event_from_cdr_row(row: dict[str, str], row_number: int) -> dict[str, Any]:
+    request_id = (row.get("request_id") or row.get("event_id") or f"CDR-{int(datetime.now().timestamp() * 1000)}-{row_number}").strip()
+    created_at = (row.get("created_at") or row.get("timestamp") or now_iso()).strip()
+    source = (row.get("source") or "mobile").strip().lower()
+    final_status = normalize_status(row.get("final_status"))
+
+    lat = float(row.get("lat") or row.get("latitude") or 0.0)
+    lng = float(row.get("lng") or row.get("longitude") or 0.0)
+    network_strength = int(float(row.get("network_strength") or row.get("signal_strength") or 55))
+    network_strength = max(1, min(99, network_strength))
+
+    tower_id = (row.get("tower_id") or "unknown").strip()
+    provider = (row.get("provider") or "unknown").strip()
+    rerouted = parse_bool(row.get("rerouted"), default=final_status != "connected")
+
+    attempts_json = row.get("attempts_json")
+    fallback_json = row.get("fallback_json")
+    messages_json = row.get("messages_json")
+    failure_reason = (row.get("failure_reason") or "cdr_import_failure").strip()
+
+    if attempts_json:
+        attempts = json.loads(attempts_json)
+    else:
+        attempts = [
+            {
+                "attempt": 1,
+                "center_id": row.get("center_id") or "cdr-center",
+                "center_name": row.get("center_name") or "Imported Center",
+                "lat": None,
+                "lng": None,
+                "distance_km": None,
+                "status": "connected" if final_status == "connected" else "failed",
+                "reason": None if final_status == "connected" else failure_reason,
+                "timestamp": created_at,
+            }
+        ]
+
+    if fallback_json:
+        fallback = json.loads(fallback_json)
+    elif final_status == "fallback_sent":
+        fallback = {
+            "channel": row.get("fallback_channel") or "sms",
+            "status": row.get("fallback_status") or "sent",
+            "timestamp": created_at,
+        }
+    else:
+        fallback = None
+
+    if messages_json:
+        messages = json.loads(messages_json)
+    else:
+        if final_status == "connected":
+            messages = ["Imported CDR: call connected"]
+        elif final_status == "fallback_sent":
+            messages = ["Imported CDR: primary route failed", "Imported CDR: fallback alert sent"]
+        else:
+            messages = ["Imported CDR: unresolved failure"]
+
+    return {
+        "request_id": request_id,
+        "created_at": created_at,
+        "source": source,
+        "location": {
+            "gps": {"lat": lat, "lng": lng},
+            "network": {"lat": lat, "lng": lng, "tower_id": tower_id},
+            "corrected": {"lat": lat, "lng": lng},
+        },
+        "network": {
+            "tower_id": tower_id,
+            "provider": provider,
+            "strength": network_strength,
+            "call_success_probability": round(network_strength / 100, 2),
+        },
+        "attempts": attempts,
+        "rerouted": rerouted,
+        "final_status": final_status,
+        "final_center": None,
+        "fallback": fallback,
+        "messages": messages,
+    }
+
+
+def import_cdr_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
+    imported = 0
+    failed = 0
+    errors: list[dict[str, Any]] = []
+
+    for row_number, row in enumerate(rows, start=2):
+        try:
+            event = build_event_from_cdr_row(row, row_number)
+            if event["location"]["corrected"]["lat"] == 0.0 and event["location"]["corrected"]["lng"] == 0.0:
+                raise ValueError("lat/lng is missing or invalid")
+            log_event(event)
+            imported += 1
+        except Exception as exc:
+            failed += 1
+            if len(errors) < 25:
+                errors.append({"row": row_number, "error": str(exc)})
+
+    return {"imported": imported, "failed": failed, "errors": errors}
+
+
 def load_json(file_name: str) -> Any:
     with open(DATA_DIR / file_name, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
+def configured_emergency_centers() -> list[dict[str, Any]]:
+    try:
+        data = load_json("emergency_centers.json")
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return deepcopy(EMERGENCY_CENTERS)
+
+
+def configured_nearby_helpers() -> list[dict[str, Any]]:
+    try:
+        data = load_json("nearby_helpers.json")
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return deepcopy(NEARBY_HELPERS)
+
+
+def nearby_helper_center(lat: float, lng: float) -> dict[str, Any]:
+    return {
+        "lat": lat,
+        "lng": lng,
+    }
+
+
+def nearby_helper_distance_m(helper: dict[str, Any], location: dict[str, float]) -> float:
+    return haversine_km(location["lat"], location["lng"], float(helper["lat"]), float(helper["lng"])) * 1000
+
+
+def build_nearby_helper_snapshot(
+    helper: dict[str, Any],
+    location: dict[str, float],
+    emergency_type: str,
+    radius_m: int,
+    status_override: str | None = None,
+) -> dict[str, Any]:
+    distance_m = nearby_helper_distance_m(helper, location)
+    if status_override:
+        status = status_override
+    elif distance_m <= radius_m:
+        status = "available"
+    else:
+        status = "ignored"
+
+    if status == "responding":
+        eta = max(1, round(distance_m / 420))
+    elif status == "available":
+        eta = max(1, round(distance_m / 600))
+    else:
+        eta = None
+
+    return {
+        "id": helper["id"],
+        "name": helper.get("name") or helper["id"],
+        "lat": float(helper["lat"]),
+        "lng": float(helper["lng"]),
+        "distance_m": round(distance_m, 1),
+        "status": status,
+        "eta_min": eta,
+        "label": helper.get("role") or emergency_type,
+        "emergency_type": emergency_type,
+    }
+
+
+def get_nearby_helper_state() -> dict[str, Any]:
+    with STORE_LOCK:
+        return deepcopy(NEARBY_HELPER_STATE)
+
+
+def set_nearby_helper_state(payload: dict[str, Any]) -> dict[str, Any]:
+    radius_m = int(payload.get("radius_m") or NEARBY_HELPER_STATE["radius_m"])
+    radius_m = max(250, min(5000, radius_m))
+
+    next_state = {
+        "radius_m": radius_m,
+        "auto_alert_on_sos": parse_bool(payload.get("auto_alert_on_sos"), NEARBY_HELPER_STATE["auto_alert_on_sos"]),
+        "sound_alert": parse_bool(payload.get("sound_alert"), NEARBY_HELPER_STATE["sound_alert"]),
+    }
+
+    with STORE_LOCK:
+        NEARBY_HELPER_STATE.update(next_state)
+        return deepcopy(NEARBY_HELPER_STATE)
+
+
+def log_nearby_helper_event(kind: str, summary: str, target: str = "global", source: str = "nearby-helpers") -> dict[str, Any]:
+    event = {
+        "timestamp": now_iso(),
+        "kind": kind,
+        "summary": summary,
+        "target": target,
+        "source": source,
+    }
+    with STORE_LOCK:
+        SIMULATION_EVENTS.appendleft(event)
+    log_ui_action({"action": f"nearby:{kind}", "target": target, "source": source})
+    return event
+
+
+def simulate_nearby_helper_alert(
+    location: dict[str, float],
+    emergency_type: str,
+    radius_m: int,
+    source: str = "manual",
+) -> dict[str, Any]:
+    helpers = configured_nearby_helpers()
+    helper_snapshots = [
+        build_nearby_helper_snapshot(helper, location, emergency_type, radius_m)
+        for helper in helpers
+    ]
+    helper_snapshots.sort(key=lambda item: item["distance_m"])
+
+    within_radius = [item for item in helper_snapshots if item["distance_m"] <= radius_m]
+    response_target_count = max(1, min(4, round(len(within_radius) * 0.4))) if within_radius else 0
+
+    for index, helper in enumerate(helper_snapshots):
+        if helper["distance_m"] > radius_m:
+            helper["status"] = "ignored"
+            helper["eta_min"] = None
+            continue
+        if index < response_target_count:
+            helper["status"] = "responding"
+            helper["eta_min"] = max(1, round(helper["distance_m"] / 320))
+        elif index < response_target_count + 2:
+            helper["status"] = "available"
+            helper["eta_min"] = max(1, round(helper["distance_m"] / 600))
+        else:
+            helper["status"] = "ignored"
+            helper["eta_min"] = None
+
+    notified = len(within_radius)
+    responding = sum(1 for helper in helper_snapshots if helper["status"] == "responding")
+    ignored = sum(1 for helper in helper_snapshots if helper["status"] == "ignored")
+
+    summary = f"Nearby alert sent to {notified} helpers; {responding} responding."
+    response = {
+        "ok": True,
+        "alert_id": f"NB-{int(datetime.now().timestamp() * 1000)}",
+        "timestamp": now_iso(),
+        "source": source,
+        "emergency_type": emergency_type,
+        "radius_m": radius_m,
+        "location": location,
+        "message": "🚨 Emergency nearby — help needed!",
+        "preview": {
+            "headline": "🚨 Emergency nearby — help needed!",
+            "details": f"{emergency_type.title()} emergency at {location['lat']:.5f}, {location['lng']:.5f}",
+            "radius_label": f"{radius_m}m radius",
+        },
+        "helpers": helper_snapshots,
+        "stats": {
+            "notified": notified,
+            "responding": responding,
+            "ignored": ignored,
+        },
+        "animation": {
+            "ripple_radius_m": radius_m,
+            "responding_ids": [helper["id"] for helper in helper_snapshots if helper["status"] == "responding"],
+        },
+    }
+
+    with STORE_LOCK:
+        NEARBY_HELPER_STATE.update(
+            {
+                "radius_m": radius_m,
+                "current_location": dict(location),
+                "last_alert": response,
+            }
+        )
+
+    log_nearby_helper_event("nearby-alert", summary, target="global", source=source)
+    for helper in helper_snapshots:
+        if helper["status"] == "responding":
+            log_nearby_helper_event(
+                "helper-response",
+                f"{helper['name']} is responding in {helper['eta_min']} min.",
+                target=helper["id"],
+                source=source,
+            )
+
+    return response
+
+
 EMERGENCY_CENTERS = load_json("emergency_centers.json")
 MOCK_CDR = load_json("mock_cdr.json")
+NEARBY_HELPERS = load_json("nearby_helpers.json")
 
 
 def now_iso() -> str:
@@ -68,43 +707,13 @@ def nearest_cell_tower(lat: float, lng: float) -> dict[str, Any]:
     return min(CELL_TOWERS, key=lambda tower: haversine_km(lat, lng, tower["lat"], tower["lng"]))
 
 
-def failure_zone_penalty(lat: float, lng: float) -> float:
-    penalty = 0.0
-    for zone in FAILURE_ZONES:
-        distance = haversine_km(lat, lng, zone["lat"], zone["lng"])
-        if distance < 1.5:
-            penalty += zone["weight"] * (1.5 - distance)
-    return min(1.2, penalty)
-
-
-def correct_location(gps_lat: float, gps_lng: float) -> dict[str, Any]:
-    tower = nearest_cell_tower(gps_lat, gps_lng)
-    tower_bias_lat = random.uniform(-0.0015, 0.0015)
-    tower_bias_lng = random.uniform(-0.0015, 0.0015)
-
-    network_lat = tower["lat"] + tower_bias_lat
-    network_lng = tower["lng"] + tower_bias_lng
-
-    corrected_lat = (gps_lat * 0.68) + (network_lat * 0.32)
-    corrected_lng = (gps_lng * 0.68) + (network_lng * 0.32)
-
-    return {
-        "gps": {"lat": gps_lat, "lng": gps_lng},
-        "network": {"lat": network_lat, "lng": network_lng, "tower_id": tower["id"]},
-        "corrected": {"lat": corrected_lat, "lng": corrected_lng},
-    }
-
-
-def compute_network_strength(lat: float, lng: float) -> dict[str, Any]:
+def compute_network_strength(lat: float, lng: float, congestion: bool = False) -> dict[str, Any]:
     tower = nearest_cell_tower(lat, lng)
     distance = haversine_km(lat, lng, tower["lat"], tower["lng"])
-    distance_penalty = min(32, distance * 9.5)
-    zone_penalty = failure_zone_penalty(lat, lng) * 15
-    random_jitter = random.uniform(-8, 8)
-
-    strength = max(5, min(99, int(tower["base_strength"] - distance_penalty - zone_penalty + random_jitter)))
-
-    probability = max(0.08, min(0.97, 0.16 + (strength / 100) * 0.78 - zone_penalty / 130))
+    distance_penalty = min(40, distance * 10)
+    congestion_penalty = 18 if congestion else 0
+    strength = max(5, min(99, int(tower["base_strength"] - distance_penalty - congestion_penalty)))
+    probability = round(max(0.05, min(0.99, strength / 100)), 3)
 
     return {
         "tower_id": tower["id"],
@@ -114,135 +723,420 @@ def compute_network_strength(lat: float, lng: float) -> dict[str, Any]:
     }
 
 
-def sorted_centers(lat: float, lng: float) -> list[dict[str, Any]]:
+def normalize_emergency_type(value: Any) -> str:
+    emergency_type = str(value or "medical").strip().lower()
+    return emergency_type if emergency_type in EMERGENCY_TYPE_CONFIG else "medical"
+
+
+def sorted_centers(lat: float, lng: float, emergency_type: str = "medical") -> list[dict[str, Any]]:
     ranked = []
-    for center in EMERGENCY_CENTERS:
+    expected_center_type = EMERGENCY_TYPE_CONFIG[normalize_emergency_type(emergency_type)]["center_type"]
+    for center in load_emergency_centers():
+        if str(center.get("type") or "").strip().lower() != expected_center_type:
+            continue
         c = deepcopy(center)
         c["distance_km"] = round(haversine_km(lat, lng, c["lat"], c["lng"]), 2)
+        runtime = evaluate_center_runtime(c)
+        c.update(runtime)
+        c["load_level"] = load_level_for_center(c, runtime)
+        c["priority_score"] = routing_priority_for_center(c, runtime)
         ranked.append(c)
-    ranked.sort(key=lambda x: x["distance_km"])
+    ranked.sort(key=lambda x: (x["priority_score"], x["distance_km"]))
     return ranked
 
 
-def pick_failure_reason(
-    network_strength: int,
-    center: dict[str, Any],
-    attempt_index: int,
-    corrected_lat: float,
-    corrected_lng: float,
-) -> str | None:
-    zone_risk = failure_zone_penalty(corrected_lat, corrected_lng)
-    load_ratio = center["load"] / max(1, center["capacity"])
+def load_level_for_center(center: dict[str, Any], runtime: dict[str, Any] | None = None) -> str:
+    active_runtime = runtime or evaluate_center_runtime(center)
+    effective_load = int(active_runtime.get("effective_load") or center.get("load") or 0)
+    capacity = max(1, int(center.get("capacity") or 0))
+    ratio = effective_load / capacity
 
-    busy_threshold = min(0.8, 0.12 + load_ratio * 0.55 + attempt_index * 0.08)
-    drop_threshold = min(0.65, 0.06 + max(0, (44 - network_strength) / 100) + zone_risk * 0.12)
-    timeout_threshold = min(0.72, 0.12 + zone_risk * 0.25 + (0.2 if network_strength < 35 else 0))
-
-    roll = random.random()
-    if roll < busy_threshold:
-        return "busy"
-    if roll < busy_threshold + drop_threshold:
-        return "dropped"
-    if roll < busy_threshold + drop_threshold + timeout_threshold:
-        return "no_response"
-    return None
+    if active_runtime.get("status") == "offline" or active_runtime.get("force_failure"):
+        return "high"
+    if ratio < 0.45:
+        return "low"
+    if ratio < 0.8:
+        return "medium"
+    return "high"
 
 
-def simulate_routing(payload: dict[str, float]) -> dict[str, Any]:
-    request_id = f"REQ-{int(datetime.now().timestamp() * 1000)}"
-    call_source = (payload.get("source") or "browser").lower()
+def routing_priority_for_center(center: dict[str, Any], runtime: dict[str, Any] | None = None) -> float:
+    active_runtime = runtime or evaluate_center_runtime(center)
+    priority = float(active_runtime.get("effective_load", 0))
+    if active_runtime.get("status") == "busy" or active_runtime.get("overload"):
+        priority += 15.0
+    if not active_runtime.get("available", True):
+        priority += 100.0
+    if SIMULATION_STATE.get("network_congestion"):
+        priority += 3.0
+    return priority
 
-    location_data = correct_location(payload["lat"], payload["lng"])
-    corrected_lat = location_data["corrected"]["lat"]
-    corrected_lng = location_data["corrected"]["lng"]
-    network_data = compute_network_strength(corrected_lat, corrected_lng)
 
-    if call_source == "voip":
-        network_data["call_success_probability"] = round(max(0.06, network_data["call_success_probability"] - 0.05), 3)
-        decision_prefix = "VoIP channel validated."
-    elif call_source == "mobile":
-        network_data["call_success_probability"] = round(min(0.99, network_data["call_success_probability"] + 0.03), 3)
-        decision_prefix = "Mobile network channel validated."
-    else:
-        decision_prefix = "Call channel validated."
+def resolve_center_type(center_id: str, raw_type: Any) -> str:
+    normalized = str(raw_type or "").strip().lower()
+    if normalized in {"hospital", "police", "fire"}:
+        return normalized
 
-    route_candidates = sorted_centers(corrected_lat, corrected_lng)
-    attempts: list[dict[str, Any]] = []
-    decision_messages: list[str] = [
-        "Attempting to connect...",
-        decision_prefix,
-        "Optimizing route using corrected location...",
-    ]
+    for configured in configured_emergency_centers():
+        if configured.get("id") == center_id:
+            fallback_type = str(configured.get("type") or "").strip().lower()
+            if fallback_type in {"hospital", "police", "fire"}:
+                return fallback_type
 
-    final_status = "failed"
-    final_center = None
-    rerouted = False
-    fallback = None
+    return "hospital"
 
-    for idx, center in enumerate(route_candidates[:4], start=1):
-        if idx > 1:
-            rerouted = True
-            decision_messages.append("Selecting alternate center...")
 
-        reason = pick_failure_reason(
-            network_data["strength"], center, idx, corrected_lat, corrected_lng
-        )
+def load_emergency_centers() -> list[dict[str, Any]]:
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, type, lat, lng, capacity, load
+            FROM emergency_centers
+            ORDER BY id
+            """
+        ).fetchall()
 
-        attempt = {
-            "attempt": idx,
-            "center_id": center["id"],
-            "center_name": center["name"],
-            "lat": center["lat"],
-            "lng": center["lng"],
-            "distance_km": center["distance_km"],
-            "status": "connected" if reason is None else "failed",
-            "reason": reason,
-            "timestamp": now_iso(),
+    if rows:
+        centers_from_db = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "type": resolve_center_type(row["id"], row["type"]),
+                "lat": float(row["lat"]),
+                "lng": float(row["lng"]),
+                "capacity": int(row["capacity"] or 0),
+                "load": int(row["load"] or 0),
+            }
+            for row in rows
+        ]
+
+        present_ids = {center["id"] for center in centers_from_db}
+        for configured in configured_emergency_centers():
+            if configured.get("id") in present_ids:
+                continue
+            centers_from_db.append(
+                {
+                    "id": configured["id"],
+                    "name": configured.get("name", "Unknown Center"),
+                    "type": resolve_center_type(configured["id"], configured.get("type")),
+                    "lat": float(configured["lat"]),
+                    "lng": float(configured["lng"]),
+                    "capacity": int(configured.get("capacity") or 0),
+                    "load": int(configured.get("load") or 0),
+                }
+            )
+
+        centers_from_db.sort(key=lambda center: center["id"])
+        return centers_from_db
+
+    return deepcopy(EMERGENCY_CENTERS)
+
+
+def normalize_center_status_id(center_id: str) -> int | str:
+    value = str(center_id).strip()
+    if value.isdigit():
+        return int(value)
+
+    match = re.search(r"(\d+)$", value)
+    if not match:
+        return value
+
+    numeric = int(match.group(1))
+    # Convert EC-101 -> 1, EC-102 -> 2 ... for the local status endpoint mapping.
+    if numeric >= 101:
+        return numeric - 100
+    return numeric
+
+
+def get_center_control(center_id: str) -> dict[str, Any]:
+    with STORE_LOCK:
+        existing = CENTER_CONTROL_STATE.get(center_id)
+    if existing:
+        return {
+            "status": existing.get("status", "available"),
+            "overload": bool(existing.get("overload", False)),
+            "force_failure": bool(existing.get("force_failure", False)),
         }
+    return {"status": "available", "overload": False, "force_failure": False}
 
-        attempts.append(attempt)
 
-        if reason is None:
-            final_status = "connected"
-            final_center = center
-            decision_messages.append("Connected to nearest emergency center")
-            break
+def get_simulation_state() -> dict[str, Any]:
+    with STORE_LOCK:
+        return deepcopy(SIMULATION_STATE)
 
-        if reason == "busy":
-            decision_messages.append("Call failed. Rerouting...")
-        elif reason == "dropped":
-            decision_messages.append("Call dropped. Re-establishing channel...")
-        else:
-            decision_messages.append("No response timeout. Escalating route...")
 
-    if final_status != "connected":
-        fallback_channel = "sms" if random.random() > 0.5 else "internet_alert"
-        fallback = {
-            "channel": fallback_channel,
-            "status": "sent" if random.random() < 0.94 else "failed",
-            "timestamp": now_iso(),
-        }
-        final_status = "fallback_sent" if fallback["status"] == "sent" else "unresolved"
-        decision_messages.append("Primary voice route unavailable. Triggering fallback alert...")
-
-    event = {
-        "request_id": request_id,
-        "created_at": now_iso(),
-        "source": call_source,
-        "location": location_data,
-        "network": network_data,
-        "attempts": attempts,
-        "rerouted": rerouted,
-        "final_status": final_status,
-        "final_center": final_center,
-        "fallback": fallback,
-        "messages": decision_messages,
+def update_simulation_state(payload: dict[str, Any]) -> dict[str, Any]:
+    next_state = {
+        "network_congestion": parse_bool(payload.get("network_congestion"), SIMULATION_STATE["network_congestion"]),
+        "auto_rerouting": parse_bool(payload.get("auto_rerouting"), SIMULATION_STATE["auto_rerouting"]),
     }
 
+    with STORE_LOCK:
+        SIMULATION_STATE.update(next_state)
+        return deepcopy(SIMULATION_STATE)
+
+
+def append_simulation_event(kind: str, summary: str, target: str = "", source: str = "admin") -> dict[str, Any]:
+    event = {
+        "timestamp": now_iso(),
+        "kind": kind,
+        "summary": summary,
+        "target": target,
+        "source": source,
+    }
+    with STORE_LOCK:
+        SIMULATION_EVENTS.appendleft(event)
+    log_ui_action({"action": f"simulation:{kind}", "target": target, "source": source})
     return event
 
 
+def evaluate_center_runtime(center: dict[str, Any]) -> dict[str, Any]:
+    control = get_center_control(center["id"])
+
+    capacity = int(center.get("capacity") or 0)
+    base_load = int(center.get("load") or 0)
+    effective_load = base_load + (1 if control["overload"] else 0)
+
+    availability = True
+    if control["force_failure"]:
+        availability = False
+    elif control["status"] == "offline":
+        availability = False
+    elif capacity <= 0:
+        availability = False
+
+    runtime_status = control["status"]
+    if control["force_failure"]:
+        runtime_status = "offline"
+    elif control["status"] == "available" and control["overload"]:
+        runtime_status = "busy"
+    elif control["status"] == "available" and not availability:
+        runtime_status = "busy" if not control["force_failure"] else "offline"
+
+    return {
+        "status": runtime_status,
+        "available": availability,
+        "overload": control["overload"],
+        "force_failure": control["force_failure"],
+        "effective_load": effective_load,
+        "load_level": load_level_for_center(center, {**control, "status": runtime_status, "available": availability, "effective_load": effective_load}),
+        "priority_score": routing_priority_for_center(center, {**control, "status": runtime_status, "available": availability, "effective_load": effective_load}),
+    }
+
+
+def load_emergency_centers_with_runtime() -> list[dict[str, Any]]:
+    centers = []
+    for center in load_emergency_centers():
+        runtime = evaluate_center_runtime(center)
+        enriched = deepcopy(center)
+        enriched.update(
+            {
+                "runtime_status": runtime["status"],
+                "available": runtime["available"],
+                "overload": runtime["overload"],
+                "force_failure": runtime["force_failure"],
+                "effective_load": runtime["effective_load"],
+                "load_level": runtime["load_level"],
+                "priority_score": runtime["priority_score"],
+            }
+        )
+        centers.append(enriched)
+    return centers
+
+
+def build_center_status_endpoint(base_url: str, status_id: int | str) -> str:
+    if "{center_id}" in base_url:
+        return base_url.format(center_id=url_parse.quote(str(status_id)))
+    return f"{base_url.rstrip('/')}/{url_parse.quote(str(status_id))}"
+
+
+def check_center_availability(center_id: str, center: dict[str, Any] | None = None) -> bool:
+    resolved_center = center or next((item for item in load_emergency_centers() if item["id"] == center_id), None)
+    if not resolved_center:
+        return False
+
+    runtime = evaluate_center_runtime(resolved_center)
+    if runtime["force_failure"] or runtime["status"] == "offline":
+        return False
+
+    status_api_url = os.getenv("CENTER_STATUS_API_URL", "http://127.0.0.1:5000/center-status/{center_id}").strip()
+    if status_api_url:
+        try:
+            status_id = normalize_center_status_id(center_id)
+            endpoint = build_center_status_endpoint(status_api_url, status_id)
+            with url_request.urlopen(endpoint, timeout=2) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if isinstance(payload, dict) and "available" in payload:
+                return bool(payload["available"])
+        except (url_error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+            pass
+
+    return runtime["available"]
+
+
+def send_alert_sms(location: dict[str, float], center: dict[str, Any] | None) -> dict[str, Any]:
+    sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    sender = os.getenv("TWILIO_FROM_NUMBER", "").strip()
+    recipient = os.getenv("TWILIO_TO_NUMBER", "").strip()
+
+    center_label = center["name"] if center else "No center available"
+    message_body = (
+        f"Res Q alert: routing failed for location "
+        f"({location['lat']:.6f}, {location['lng']:.6f}). {center_label}."
+    )
+
+    if sid and token and sender and recipient:
+        try:
+            twilio_rest = __import__("twilio.rest", fromlist=["Client"])
+            client = twilio_rest.Client(sid, token)
+            api_response = client.messages.create(body=message_body, from_=sender, to=recipient)
+            return {
+                "channel": "sms",
+                "status": "sent",
+                "timestamp": now_iso(),
+                "provider": "twilio",
+                "message_sid": api_response.sid,
+            }
+        except Exception as exc:  # pragma: no cover - integration path
+            return {
+                "channel": "sms",
+                "status": "failed",
+                "timestamp": now_iso(),
+                "provider": "twilio",
+                "error": str(exc),
+            }
+
+    print(f"[ALERT_SMS_FALLBACK] {message_body}")
+    return {
+        "channel": "sms",
+        "status": "logged",
+        "timestamp": now_iso(),
+        "provider": "console",
+    }
+
+
+def route_emergency_call(payload: dict[str, Any]) -> dict[str, Any]:
+    lat = float(payload["lat"])
+    lng = float(payload["lng"])
+    user_id = str(payload.get("user_id") or "anonymous")
+    source = str(payload.get("source") or "browser").lower()
+    emergency_type = normalize_emergency_type(payload.get("emergency_type"))
+    request_time = str(payload.get("timestamp") or now_iso())
+    request_id = str(payload.get("request_id") or f"REQ-{int(datetime.now().timestamp() * 1000)}")
+    simulation_state = get_simulation_state()
+
+    centers = sorted_centers(lat, lng, emergency_type=emergency_type)
+    network_data = compute_network_strength(lat, lng, congestion=bool(simulation_state.get("network_congestion")))
+
+    attempts: list[dict[str, Any]] = []
+    selected_center: dict[str, Any] | None = None
+
+    for attempt_index, center in enumerate(centers, start=1):
+        available = check_center_availability(center["id"], center)
+        attempt_status = "connected" if available else "failed"
+
+        if simulation_state.get("network_congestion") and attempt_index == 1 and network_data["strength"] < 45:
+            available = False
+            attempt_status = "failed"
+
+        attempts.append(
+            {
+                "attempt": attempt_index,
+                "center_id": center["id"],
+                "center_name": center["name"],
+                "lat": center["lat"],
+                "lng": center["lng"],
+                "distance_km": center["distance_km"],
+                "status": attempt_status,
+                "reason": None if available else "center_unavailable",
+                "timestamp": now_iso(),
+            }
+        )
+
+        if available:
+            selected_center = center
+            break
+
+        if not simulation_state.get("auto_rerouting", True):
+            break
+
+    rerouted = selected_center is not None and len(attempts) > 1
+    if selected_center and rerouted:
+        status = "rerouted"
+        final_status = "connected"
+        message = "Connected after rerouting to nearest available center"
+    elif selected_center:
+        status = "connected"
+        final_status = "connected"
+        message = "Connected to nearest available center"
+    else:
+        status = "failed"
+        final_status = "unresolved"
+        message = "No available emergency center found"
+
+    fallback = None
+    if status == "failed":
+        fallback = send_alert_sms({"lat": lat, "lng": lng}, selected_center)
+
+    location_data = {
+        "gps": {"lat": lat, "lng": lng},
+        "network": {
+            "lat": lat,
+            "lng": lng,
+            "tower_id": network_data["tower_id"],
+        },
+        "corrected": {"lat": lat, "lng": lng},
+    }
+
+    route_data = {
+        "from": {"lat": lat, "lng": lng},
+        "to": {"lat": selected_center["lat"], "lng": selected_center["lng"]} if selected_center else None,
+        "polyline": [[lat, lng], [selected_center["lat"], selected_center["lng"]]] if selected_center else [],
+    }
+
+    payload_network_strength = payload.get("network_strength")
+    if payload_network_strength is None:
+        effective_strength = network_data["strength"]
+    else:
+        effective_strength = int(float(payload_network_strength))
+
+    response = {
+        "request_id": request_id,
+        "created_at": request_time,
+        "source": source,
+        "user_id": user_id,
+        "emergency_type": emergency_type,
+        "location": location_data,
+        "network": {
+            "tower_id": network_data["tower_id"],
+            "provider": network_data["provider"],
+            "strength": effective_strength,
+            "call_success_probability": network_data["call_success_probability"],
+            "info": payload.get("network") or {},
+        },
+        "user_location": {"lat": lat, "lng": lng},
+        "assigned_center": selected_center,
+        "selected_center": selected_center,
+        "status": status,
+        "reroute_attempts": attempts,
+        "message": message,
+        "route": route_data,
+        "attempts": attempts,
+        "rerouted": rerouted,
+        "final_status": final_status,
+        "final_center": selected_center,
+        "fallback": fallback,
+        "messages": [message],
+        "simulation_state": simulation_state,
+    }
+
+    return response
+
+
 def log_event(entry: dict[str, Any]) -> None:
+    write_event_to_db(entry)
+
     with STORE_LOCK:
         base = {
             "timestamp": now_iso(),
@@ -265,6 +1159,20 @@ def log_event(entry: dict[str, Any]) -> None:
 
 
 def log_ui_action(action: dict[str, Any]) -> None:
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO ui_actions (timestamp, action, target, source)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                now_iso(),
+                action.get("action", "unknown"),
+                action.get("target", ""),
+                action.get("source", "dashboard"),
+            ),
+        )
+
     with STORE_LOCK:
         UI_ACTIONS.appendleft(
             {
@@ -291,9 +1199,39 @@ def emergency() -> str:
     return render_template("emergency.html")
 
 
+@app.route("/emergency/<emergency_type>")
+def emergency_type_page(emergency_type: str) -> str:
+    normalized = normalize_emergency_type(emergency_type)
+    config = EMERGENCY_TYPE_CONFIG[normalized]
+    return render_template(
+        "emergency_mode.html",
+        emergency_type=normalized,
+        emergency_title=config["title"],
+        mode_icon=config["icon"],
+        mode_label=config["mode_label"],
+        accent_class=config["accent_class"],
+        mode_description=config["description"],
+    )
+
+
 @app.route("/dashboard")
 def dashboard() -> str:
     return render_template("dashboard.html")
+
+
+@app.route("/admin")
+def admin() -> str:
+    return render_template("admin.html")
+
+
+@app.route("/admin/control-center")
+def admin_control_center() -> str:
+    return redirect(url_for("admin"))
+
+
+@app.route("/nearby-helpers")
+def nearby_helpers() -> str:
+    return render_template("nearby_helpers.html")
 
 
 @app.route("/logs")
@@ -306,13 +1244,47 @@ def about() -> str:
     return render_template("about.html")
 
 
+@app.route("/center-status/<int:center_id>")
+def center_status(center_id: int):
+    centers = load_emergency_centers()
+    if 1 <= center_id <= len(centers):
+        center = centers[center_id - 1]
+        available = evaluate_center_runtime(center)["available"]
+        return jsonify({"available": available})
+
+    return jsonify({"available": True})
+
+
+@app.route("/center-status/<center_id>")
+def center_status_alias(center_id: str):
+    normalized = normalize_center_status_id(center_id)
+    if isinstance(normalized, int):
+        return center_status(normalized)
+    return jsonify({"available": True})
+
+
 @app.route("/api/bootstrap")
 def api_bootstrap():
+    requested_emergency_type = request.args.get("emergency_type")
+    centers = load_emergency_centers_with_runtime()
+    response_emergency_type = None
+
+    if requested_emergency_type:
+        response_emergency_type = normalize_emergency_type(requested_emergency_type)
+        expected_center_type = EMERGENCY_TYPE_CONFIG[response_emergency_type]["center_type"]
+        centers = [
+            center
+            for center in centers
+            if str(center.get("type") or "").strip().lower() == expected_center_type
+        ]
+
     return jsonify(
         {
-            "centers": EMERGENCY_CENTERS,
+            "centers": centers,
             "failure_zones": FAILURE_ZONES,
             "cdr_sample": MOCK_CDR,
+            "emergency_type": response_emergency_type,
+            "simulation_state": get_simulation_state(),
         }
     )
 
@@ -326,15 +1298,43 @@ def trigger_emergency():
     if lat is None or lng is None:
         return jsonify({"error": "lat and lng are required"}), 400
 
-    event = simulate_routing({"lat": float(lat), "lng": float(lng), "source": payload.get("source", "browser")})
+    event = route_emergency_call(
+        {
+            "lat": float(lat),
+            "lng": float(lng),
+            "source": payload.get("source", "browser"),
+            "emergency_type": payload.get("emergency_type"),
+            "user_id": payload.get("user_id"),
+            "timestamp": payload.get("timestamp"),
+            "network": payload.get("network"),
+            "network_strength": payload.get("network_strength"),
+            "request_id": payload.get("request_id"),
+        }
+    )
     log_event(event)
-    return jsonify(event)
+
+    nearby_alert = None
+    if get_nearby_helper_state().get("auto_alert_on_sos"):
+        nearby_alert = simulate_nearby_helper_alert(
+            {"lat": float(lat), "lng": float(lng)},
+            emergency_type=event.get("emergency_type") or normalize_emergency_type(payload.get("emergency_type")),
+            radius_m=int(get_nearby_helper_state().get("radius_m") or 1000),
+            source="sos",
+        )
+
+    response = dict(event)
+    if nearby_alert:
+        response["nearby_alert"] = nearby_alert
+    return jsonify(response)
 
 
 @app.route("/api/dashboard")
 def api_dashboard():
     with STORE_LOCK:
         requests_snapshot = list(LIVE_REQUESTS)[:20]
+
+    if not requests_snapshot:
+        requests_snapshot = fetch_recent_requests(limit=20)
 
     summary = {
         "total": len(requests_snapshot),
@@ -355,13 +1355,121 @@ def api_dashboard():
 
     return jsonify(
         {
-            "centers": EMERGENCY_CENTERS,
+            "centers": load_emergency_centers_with_runtime(),
             "requests": requests_snapshot,
             "summary": summary,
             "failure_heatmap": heat_points,
             "failure_zones": FAILURE_ZONES,
+            "simulation_state": get_simulation_state(),
+            "nearby_helper_state": get_nearby_helper_state(),
         }
     )
+
+
+@app.route("/api/admin/centers")
+def api_admin_centers():
+    return jsonify({"centers": load_emergency_centers_with_runtime(), "simulation_state": get_simulation_state()})
+
+
+@app.route("/api/admin/simulation", methods=["GET", "POST"])
+def api_admin_simulation():
+    if request.method == "GET":
+        return jsonify({"simulation_state": get_simulation_state()})
+
+    payload = request.get_json(silent=True) or {}
+    state = update_simulation_state(payload)
+    append_simulation_event(
+        "global-update",
+        f"Network congestion {'enabled' if state['network_congestion'] else 'disabled'}, auto rerouting {'enabled' if state['auto_rerouting'] else 'disabled'}.",
+    )
+    return jsonify({"ok": True, "simulation_state": state})
+
+
+@app.route("/api/admin/simulation/reset", methods=["POST"])
+def api_admin_simulation_reset():
+    with STORE_LOCK:
+        SIMULATION_STATE.update({"network_congestion": False, "auto_rerouting": True})
+        CENTER_CONTROL_STATE.clear()
+        SIMULATION_EVENTS.appendleft(
+            {
+                "timestamp": now_iso(),
+                "kind": "reset",
+                "summary": "All simulations reset.",
+                "target": "global",
+                "source": "admin",
+            }
+        )
+
+    log_ui_action({"action": "simulation:reset", "target": "global", "source": "admin"})
+    return jsonify({"ok": True, "simulation_state": get_simulation_state()})
+
+
+@app.route("/api/admin/center-control", methods=["POST"])
+def api_admin_center_control():
+    payload = request.get_json(silent=True) or {}
+    center_id = str(payload.get("center_id") or "").strip()
+    if not center_id:
+        return jsonify({"error": "center_id is required"}), 400
+
+    if not any(center.get("id") == center_id for center in load_emergency_centers()):
+        return jsonify({"error": f"Center not found: {center_id}"}), 404
+
+    status = str(payload.get("status") or "available").strip().lower()
+    if status not in ALLOWED_CENTER_STATUS:
+        return jsonify({"error": "status must be one of: available, busy, offline"}), 400
+
+    overload = bool(payload.get("overload", False))
+    force_failure = bool(payload.get("force_failure", False))
+
+    with STORE_LOCK:
+        CENTER_CONTROL_STATE[center_id] = {
+            "status": status,
+            "overload": overload,
+            "force_failure": force_failure,
+        }
+
+    updated = next((center for center in load_emergency_centers_with_runtime() if center["id"] == center_id), None)
+    if updated:
+        append_simulation_event(
+            "center-update",
+            f"{updated['name']} set to {updated['runtime_status']}; overload {'on' if updated['overload'] else 'off'}; failure {'on' if updated['force_failure'] else 'off'}.",
+            target=center_id,
+        )
+    return jsonify({"ok": True, "center": updated})
+
+
+@app.route("/api/nearby-helpers", methods=["GET", "POST"])
+def api_nearby_helpers():
+    if request.method == "GET":
+        state = get_nearby_helper_state()
+        location = state.get("current_location") or {"lat": 12.9716, "lng": 77.5946}
+        radius_m = int(state.get("radius_m") or 1000)
+        emergency_type = normalize_emergency_type(request.args.get("emergency_type") or "medical")
+        helpers = [
+            build_nearby_helper_snapshot(helper, location, emergency_type, radius_m)
+            for helper in configured_nearby_helpers()
+        ]
+        helpers.sort(key=lambda item: item["distance_m"])
+        return jsonify({"state": state, "helpers": helpers})
+
+    payload = request.get_json(silent=True) or {}
+    state = set_nearby_helper_state(payload)
+    return jsonify({"ok": True, "state": state})
+
+
+@app.route("/api/nearby-helpers/trigger", methods=["POST"])
+def api_nearby_helpers_trigger():
+    payload = request.get_json(silent=True) or {}
+    lat = payload.get("lat")
+    lng = payload.get("lng")
+
+    if lat is None or lng is None:
+        return jsonify({"error": "lat and lng are required"}), 400
+
+    emergency_type = normalize_emergency_type(payload.get("emergency_type"))
+    radius_m = int(payload.get("radius_m") or get_nearby_helper_state().get("radius_m") or 1000)
+    alert = simulate_nearby_helper_alert({"lat": float(lat), "lng": float(lng)}, emergency_type, radius_m, source="manual")
+    return jsonify(alert)
 
 
 @app.route("/api/logs")
@@ -370,20 +1478,68 @@ def api_logs():
 
     with STORE_LOCK:
         logs_snapshot = list(CALL_LOGS)
+        simulation_snapshot = list(SIMULATION_EVENTS)
+        nearby_snapshot = list(UI_ACTIONS)
 
-    if status_filter != "all":
-        if status_filter == "failed":
-            allowed = {"fallback_sent", "unresolved"}
-        elif status_filter == "rerouted":
-            allowed = {"connected", "fallback_sent", "unresolved"}
-            logs_snapshot = [item for item in logs_snapshot if item["rerouted"]]
-            return jsonify(logs_snapshot)
-        elif status_filter == "success":
-            allowed = {"connected"}
-        else:
-            allowed = {status_filter}
+    if not logs_snapshot:
+        logs_snapshot = fetch_logs_from_db(status_filter=status_filter)
 
-        logs_snapshot = [item for item in logs_snapshot if item["final_status"] in allowed]
+    simulation_rows: list[dict[str, Any]] = []
+    for event in simulation_snapshot:
+        simulation_rows.append(
+            {
+                "timestamp": event["timestamp"],
+                "request_id": f"SIM-{event['timestamp'][-6:]}",
+                "source": event.get("source", "admin"),
+                "final_status": "connected" if event["kind"] == "global-update" else "unresolved",
+                "rerouted": False,
+                "network_strength": 88 if event["kind"] == "global-update" else 100,
+                "user_lat": 0,
+                "user_lng": 0,
+                "details": {
+                    "attempts": [],
+                    "fallback": None,
+                    "messages": [event["summary"]],
+                },
+                "kind": "simulation",
+                "summary": event["summary"],
+                "target": event.get("target", ""),
+            }
+        )
+
+    nearby_rows: list[dict[str, Any]] = []
+    for event in nearby_snapshot:
+        if not str(event.get("action") or "").startswith("nearby:"):
+            continue
+        nearby_rows.append(
+            {
+                "timestamp": event["timestamp"],
+                "request_id": f"NB-{event['timestamp'][-6:]}",
+                "source": event.get("source", "nearby-helpers"),
+                "final_status": "connected",
+                "rerouted": False,
+                "network_strength": 100,
+                "user_lat": 0,
+                "user_lng": 0,
+                "details": {
+                    "attempts": [],
+                    "fallback": None,
+                    "messages": [event["action"], event.get("target") or "global"],
+                },
+                "kind": "nearby",
+                "summary": event["action"],
+                "target": event.get("target", ""),
+            }
+        )
+
+    if status_filter == "all":
+        logs_snapshot = nearby_rows + simulation_rows + logs_snapshot
+    elif status_filter == "failed":
+        logs_snapshot = [item for item in logs_snapshot if item["final_status"] in {"fallback_sent", "unresolved"}]
+    elif status_filter == "rerouted":
+        logs_snapshot = [item for item in logs_snapshot if item["rerouted"]]
+    elif status_filter == "success":
+        logs_snapshot = [item for item in logs_snapshot if item["final_status"] == "connected"]
 
     return jsonify(logs_snapshot)
 
@@ -393,6 +1549,51 @@ def api_ui_feature_click():
     payload = request.get_json(silent=True) or {}
     log_ui_action(payload)
     return jsonify({"ok": True})
+
+
+@app.route("/api/cdr/import", methods=["POST"])
+def api_cdr_import():
+    rows: list[dict[str, str]] = []
+
+    if "cdr_file" in request.files:
+        uploaded = request.files["cdr_file"]
+        if not uploaded.filename:
+            return jsonify({"error": "No file selected"}), 400
+        decoded = uploaded.stream.read().decode("utf-8-sig")
+        rows = list(csv.DictReader(decoded.splitlines()))
+    else:
+        payload = request.get_json(silent=True) or {}
+        file_path = payload.get("file_path")
+        if not file_path:
+            return jsonify({"error": "Provide multipart field 'cdr_file' or JSON {'file_path': '...'}"}), 400
+
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+
+        if not path.exists() or not path.is_file():
+            return jsonify({"error": f"File not found: {path}"}), 404
+
+        with path.open("r", encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+
+    if not rows:
+        return jsonify({"error": "No CDR rows found in CSV"}), 400
+
+    result = import_cdr_rows(rows)
+    return jsonify(
+        {
+            "ok": True,
+            "total_rows": len(rows),
+            "imported": result["imported"],
+            "failed": result["failed"],
+            "errors": result["errors"],
+        }
+    )
+
+
+init_db()
+sync_emergency_centers()
 
 
 if __name__ == "__main__":

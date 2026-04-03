@@ -2,6 +2,7 @@
   {
     "id": "EC-101",
     "name": "Central Command Hub",
+    "type": "hospital",
     "lat": 12.9716,
     "lng": 77.5946,
     "capacity": 24,
@@ -10,6 +11,7 @@
   {
     "id": "EC-102",
     "name": "North Metro Response",
+    "type": "police",
     "lat": 13.0358,
     "lng": 77.5970,
     "capacity": 18,
@@ -18,6 +20,7 @@
   {
     "id": "EC-103",
     "name": "West Rapid Unit",
+    "type": "fire",
     "lat": 12.9629,
     "lng": 77.5340,
     "capacity": 14,
@@ -26,6 +29,7 @@
   {
     "id": "EC-104",
     "name": "South Trauma Dispatch",
+    "type": "hospital",
     "lat": 12.9081,
     "lng": 77.6476,
     "capacity": 16,
@@ -34,9 +38,19 @@
   {
     "id": "EC-105",
     "name": "East Signal Rescue",
+    "type": "police",
     "lat": 12.9923,
     "lng": 77.6964,
     "capacity": 12,
     "load": 9
+  },
+  {
+    "id": "EC-106",
+    "name": "South Fire Command",
+    "type": "fire",
+    "lat": 12.9215,
+    "lng": 77.6124,
+    "capacity": 10,
+    "load": 6
   }
 ]

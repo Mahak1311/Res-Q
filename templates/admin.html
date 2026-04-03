@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+
+{% block title %}Res Q | Admin / Control Center{% endblock %}
+
+{% block content %}
+<section class="command-center admin-shell reveal">
+  <aside class="dashboard-sidebar glass-panel">
+    <div class="sidebar-brand">
+      <div class="brand-mark">AC</div>
+      <div>
+        <p class="eyebrow">Res Q</p>
+        <strong>Admin Control</strong>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav" aria-label="Admin navigation">
+      <a class="sidebar-link" href="{{ url_for('dashboard') }}">🛰️ Dashboard</a>
+      <a class="sidebar-link" href="{{ url_for('emergency') }}">🚨 Emergency</a>
+      <a class="sidebar-link active" href="{{ url_for('admin') }}">⚙️ Admin Control</a>
+      <a class="sidebar-link" href="{{ url_for('nearby_helpers') }}">👥 Nearby Helpers</a>
+      <a class="sidebar-link" href="{{ url_for('logs') }}">📒 Logs</a>
+      <a class="sidebar-link" href="{{ url_for('about') }}">ℹ️ About</a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <p class="mini-label">Control Plane</p>
+      <span class="live-indicator">
+        <span class="live-dot"></span>
+        Simulation Live
+      </span>
+    </div>
+  </aside>
+
+  <main class="admin-center-panel glass-panel">
+    <div class="admin-hero">
+      <div>
+        <p class="eyebrow">Admin / Control Center</p>
+        <h1>Admin Control Center</h1>
+        <p class="lead">Manage emergency centers and simulate real-world failures.</p>
+      </div>
+      <div class="admin-hero-badges">
+        <span id="networkStateBadge" class="status-pill neutral">Network Normal</span>
+        <span id="rerouteStateBadge" class="status-pill active">Auto Rerouting On</span>
+      </div>
+    </div>
+
+    <section class="admin-global-panel glass-panel" aria-label="Global simulation controls">
+      <div class="section-head">
+        <div>
+          <p class="mini-label">Global Simulation Panel</p>
+          <h2>Network and rerouting controls</h2>
+        </div>
+        <span id="adminSyncState" class="status-pill neutral">Syncing...</span>
+      </div>
+
+      <div class="toggle-row">
+        <label class="control-toggle" title="Reduces signal strength and makes routing more failure-prone.">
+          <input id="networkCongestionToggle" type="checkbox" />
+          <span class="control-toggle-ui"></span>
+          <span>
+            <strong>Simulate Network Congestion</strong>
+            <small>Lower signal quality and increase reroute pressure.</small>
+          </span>
+        </label>
+
+        <label class="control-toggle" title="Keeps the first failure moving to alternate centers automatically.">
+          <input id="autoReroutingToggle" type="checkbox" />
+          <span class="control-toggle-ui"></span>
+          <span>
+            <strong>Enable Auto Rerouting</strong>
+            <small>Allow the emergency workflow to try the next center.</small>
+          </span>
+        </label>
+
+        <button id="resetSimulationsBtn" class="btn btn-secondary" type="button" title="Clear all center controls and restore default simulation state.">
+          Reset All Simulations
+        </button>
+      </div>
+    </section>
+
+    <section class="admin-section-head">
+      <div>
+        <p class="mini-label">Emergency Centers</p>
+        <h2>Emergency center cards</h2>
+      </div>
+      <div class="admin-summary-pills">
+        <span id="adminCenterCount" class="status-pill neutral">0 centers</span>
+        <span id="adminLoadCount" class="status-pill neutral">0 overloaded</span>
+        <span id="adminFailureCount" class="status-pill bad">0 failed</span>
+      </div>
+    </section>
+
+    <div id="adminCenterGrid" class="admin-center-grid" aria-live="polite"></div>
+  </main>
+
+  <aside class="dashboard-rail glass-panel admin-rail">
+    <section class="admin-summary-panel">
+      <div class="section-head">
+        <h2>Live Load</h2>
+        <span class="status-pill active">Realtime</span>
+      </div>
+      <div class="load-legend">
+        <span><i class="legend-dot user"></i>Available</span>
+        <span><i class="legend-dot route"></i>Busy</span>
+        <span><i class="legend-dot danger"></i>Offline / Failed</span>
+      </div>
+      <div class="admin-mini-graph" id="loadGraph"></div>
+    </section>
+
+    <section class="admin-summary-panel">
+      <div class="section-head">
+        <h2>Recent Simulation Events</h2>
+        <span class="mini-label">Audit trail</span>
+      </div>
+      <ul id="adminMessageFeed" class="message-feed admin-feed"></ul>
+    </section>
+
+    <section class="admin-summary-panel">
+      <div class="section-head">
+        <h2>Tooltips</h2>
+        <span class="mini-label">What the controls do</span>
+      </div>
+      <ul class="admin-tip-list">
+        <li>Overload pushes a center to busy and lowers routing priority.</li>
+        <li>Force failure marks a center offline and blocks routing.</li>
+        <li>Network congestion lowers effective signal strength globally.</li>
+        <li>Auto rerouting decides whether alternate centers are tried.</li>
+      </ul>
+    </section>
+  </aside>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}

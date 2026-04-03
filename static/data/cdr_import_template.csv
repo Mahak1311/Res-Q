@@ -1,0 +1,4 @@
+request_id,created_at,source,lat,lng,network_strength,final_status,rerouted,tower_id,provider,failure_reason,fallback_channel,fallback_status
+CDR-1001,2026-04-03T09:30:00+00:00,mobile,12.9716,77.5946,78,connected,false,T-02,Jio,,,
+CDR-1002,2026-04-03T09:31:15+00:00,voip,12.9497,77.6208,34,fallback_sent,true,T-03,Vi,no_response,sms,sent
+CDR-1003,2026-04-03T09:33:10+00:00,mobile,12.9369,77.5607,22,unresolved,true,T-04,BSNL,dropped,,

@@ -1,0 +1,14 @@
+[
+  {"id": "H-201", "name": "Aarav", "lat": 12.9742, "lng": 77.5928, "status": "available"},
+  {"id": "H-202", "name": "Maya", "lat": 12.9691, "lng": 77.6027, "status": "available"},
+  {"id": "H-203", "name": "Kabir", "lat": 12.9658, "lng": 77.5849, "status": "available"},
+  {"id": "H-204", "name": "Sara", "lat": 12.9787, "lng": 77.6075, "status": "available"},
+  {"id": "H-205", "name": "Rohan", "lat": 12.9569, "lng": 77.5982, "status": "available"},
+  {"id": "H-206", "name": "Isha", "lat": 12.9906, "lng": 77.5881, "status": "available"},
+  {"id": "H-207", "name": "Neel", "lat": 12.9618, "lng": 77.6144, "status": "available"},
+  {"id": "H-208", "name": "Zoya", "lat": 12.9851, "lng": 77.6038, "status": "available"},
+  {"id": "H-209", "name": "Dev", "lat": 12.9484, "lng": 77.5877, "status": "available"},
+  {"id": "H-210", "name": "Priya", "lat": 12.9729, "lng": 77.6198, "status": "available"},
+  {"id": "H-211", "name": "Anonymous-42", "lat": 12.9779, "lng": 77.5798, "status": "available"},
+  {"id": "H-212", "name": "Anonymous-77", "lat": 12.9541, "lng": 77.6071, "status": "available"}
+]
