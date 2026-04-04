@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import csv
+import importlib
 import json
 import math
 import os
 import re
 import sqlite3
 import threading
+from functools import wraps
 from urllib import error as url_error
 from urllib import parse as url_parse
 from urllib import request as url_request
@@ -16,7 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "static" / "data"
@@ -25,6 +28,9 @@ DEFAULT_MAP_LAT = float(os.getenv("DEFAULT_MAP_LAT", "20.5937"))
 DEFAULT_MAP_LNG = float(os.getenv("DEFAULT_MAP_LNG", "78.9629"))
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-only-change-me")
+AUTH_SESSION_KEY = "auth_user_id"
+PHONE_PATTERN = re.compile(r"^\+?[1-9]\d{7,14}$")
 
 EMERGENCY_TYPE_CONFIG: dict[str, dict[str, str]] = {
     "medical": {
@@ -72,6 +78,21 @@ NEARBY_HELPER_STATE: dict[str, Any] = {
     "last_alert": None,
 }
 ALLOWED_CENTER_STATUS = {"available", "busy", "offline"}
+PUBLIC_ENDPOINTS = {
+    "home",
+    "main_home",
+    "intro",
+    "auth_page",
+    "login_page",
+    "api_auth_signup_email",
+    "api_auth_login_email",
+    "api_auth_signup_phone",
+    "api_auth_login_phone",
+    "api_auth_google",
+    "logout",
+    "center_status",
+    "center_status_alias",
+}
 
 FAILURE_ZONES = [
     {"name": "Tunnel Corridor", "lat": 12.9497, "lng": 77.6208, "weight": 0.42},
@@ -169,8 +190,172 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_emergency_requests_final_status ON emergency_requests(final_status);
             CREATE INDEX IF NOT EXISTS idx_call_attempts_request_id ON call_attempts(request_id);
             CREATE INDEX IF NOT EXISTS idx_ui_actions_timestamp ON ui_actions(timestamp DESC);
+
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                email TEXT UNIQUE,
+                phone TEXT UNIQUE,
+                password_hash TEXT,
+                google_sub TEXT UNIQUE,
+                auth_provider TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_login_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+            CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+            CREATE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub);
             """
         )
+
+
+def normalize_email(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def normalize_phone(value: Any) -> str:
+    raw = str(value or "").strip().replace(" ", "").replace("-", "")
+    if raw.startswith("00"):
+        raw = f"+{raw[2:]}"
+    if raw and not raw.startswith("+") and raw.isdigit():
+        raw = f"+{raw}"
+    return raw
+
+
+def is_valid_phone(phone: str) -> bool:
+    return bool(PHONE_PATTERN.match(phone))
+
+
+def get_user_by_id(user_id: int) -> dict[str, Any] | None:
+    with get_db_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, full_name, email, phone, auth_provider, created_at, last_login_at
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_email(email: str) -> dict[str, Any] | None:
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_phone(phone: str) -> dict[str, Any] | None:
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE phone = ?", (phone,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_google_sub(google_sub: str) -> dict[str, Any] | None:
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT * FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
+    return dict(row) if row else None
+
+
+def session_user() -> dict[str, Any] | None:
+    user_id = session.get(AUTH_SESSION_KEY)
+    if not user_id:
+        return None
+    return get_user_by_id(int(user_id))
+
+
+def set_session_user(user_id: int) -> None:
+    session[AUTH_SESSION_KEY] = int(user_id)
+
+
+def clear_session_user() -> None:
+    session.pop(AUTH_SESSION_KEY, None)
+
+
+def redirect_target(default_endpoint: str = "dashboard") -> str:
+    candidate = request.args.get("next") or ""
+    if not candidate or not candidate.startswith("/"):
+        return url_for(default_endpoint)
+    if candidate.startswith("//"):
+        return url_for(default_endpoint)
+    return candidate
+
+
+def json_redirect_target(payload: dict[str, Any], default_endpoint: str = "dashboard") -> str:
+    candidate = str(payload.get("next") or "").strip()
+    if not candidate or not candidate.startswith("/") or candidate.startswith("//"):
+        return url_for(default_endpoint)
+    return candidate
+
+
+@app.context_processor
+def inject_auth_context() -> dict[str, Any]:
+    return {
+        "auth_user": session_user(),
+        "google_client_id": os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+    }
+
+
+@app.before_request
+def require_authentication():
+    endpoint = request.endpoint
+    if not endpoint:
+        return None
+
+    if endpoint == "static" or endpoint in PUBLIC_ENDPOINTS:
+        return None
+
+    if session_user():
+        return None
+
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Authentication required"}), 401
+
+    next_path = request.full_path if request.query_string else request.path
+    return redirect(url_for("auth_page", next=next_path))
+
+
+def require_json_auth(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        user = session_user()
+        if not user:
+            return jsonify({"error": "Authentication required"}), 401
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+def verify_google_credential(credential: str) -> dict[str, Any] | None:
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id or not credential:
+        return None
+
+    try:
+        google_requests = importlib.import_module("google.auth.transport.requests")
+        google_id_token = importlib.import_module("google.oauth2.id_token")
+    except Exception:
+        return None
+
+    try:
+        token_data = google_id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            client_id,
+        )
+    except Exception:
+        return None
+
+    email = normalize_email(token_data.get("email"))
+    if not token_data.get("sub") or not email:
+        return None
+
+    return {
+        "sub": str(token_data.get("sub")),
+        "email": email,
+        "full_name": str(token_data.get("name") or "Google User").strip() or "Google User",
+    }
 
 
 def sync_emergency_centers() -> None:
@@ -1332,6 +1517,24 @@ def home() -> str:
     return render_template("intro.html")
 
 
+@app.route("/auth")
+def auth_page() -> Any:
+    if session_user():
+        return redirect(redirect_target())
+    return render_template("auth.html", next=redirect_target())
+
+
+@app.route("/login")
+def login_page() -> Any:
+    return redirect(url_for("auth_page", next=request.args.get("next") or ""))
+
+
+@app.route("/logout", methods=["GET", "POST"])
+def logout() -> Any:
+    clear_session_user()
+    return redirect(url_for("auth_page"))
+
+
 @app.route("/home")
 def main_home() -> str:
     return redirect(url_for("dashboard"))
@@ -1412,6 +1615,7 @@ def center_status_alias(center_id: str):
 
 
 @app.route("/api/bootstrap")
+@require_json_auth
 def api_bootstrap():
     requested_emergency_type = request.args.get("emergency_type")
     centers = load_emergency_centers_with_runtime()
@@ -1438,6 +1642,7 @@ def api_bootstrap():
 
 
 @app.route("/api/emergency/trigger", methods=["POST"])
+@require_json_auth
 def trigger_emergency():
     payload = request.get_json(silent=True) or {}
     lat = payload.get("lat")
@@ -1477,6 +1682,7 @@ def trigger_emergency():
 
 
 @app.route("/api/dashboard")
+@require_json_auth
 def api_dashboard():
     with STORE_LOCK:
         requests_snapshot = list(LIVE_REQUESTS)[:20]
@@ -1515,11 +1721,13 @@ def api_dashboard():
 
 
 @app.route("/api/admin/centers")
+@require_json_auth
 def api_admin_centers():
     return jsonify({"centers": load_emergency_centers_with_runtime(), "simulation_state": get_simulation_state()})
 
 
 @app.route("/api/admin/simulation", methods=["GET", "POST"])
+@require_json_auth
 def api_admin_simulation():
     if request.method == "GET":
         return jsonify({"simulation_state": get_simulation_state()})
@@ -1534,6 +1742,7 @@ def api_admin_simulation():
 
 
 @app.route("/api/admin/simulation/reset", methods=["POST"])
+@require_json_auth
 def api_admin_simulation_reset():
     with STORE_LOCK:
         SIMULATION_STATE.update({"network_congestion": False, "auto_rerouting": True})
@@ -1553,6 +1762,7 @@ def api_admin_simulation_reset():
 
 
 @app.route("/api/admin/center-control", methods=["POST"])
+@require_json_auth
 def api_admin_center_control():
     payload = request.get_json(silent=True) or {}
     center_id = str(payload.get("center_id") or "").strip()
@@ -1587,6 +1797,7 @@ def api_admin_center_control():
 
 
 @app.route("/api/nearby-helpers", methods=["GET", "POST"])
+@require_json_auth
 def api_nearby_helpers():
     if request.method == "GET":
         state = get_nearby_helper_state()
@@ -1606,6 +1817,7 @@ def api_nearby_helpers():
 
 
 @app.route("/api/nearby-helpers/trigger", methods=["POST"])
+@require_json_auth
 def api_nearby_helpers_trigger():
     payload = request.get_json(silent=True) or {}
     lat = payload.get("lat")
@@ -1621,6 +1833,7 @@ def api_nearby_helpers_trigger():
 
 
 @app.route("/api/logs")
+@require_json_auth
 def api_logs():
     status_filter = (request.args.get("status") or "all").lower()
 
@@ -1693,6 +1906,7 @@ def api_logs():
 
 
 @app.route("/api/ui/feature-click", methods=["POST"])
+@require_json_auth
 def api_ui_feature_click():
     payload = request.get_json(silent=True) or {}
     log_ui_action(payload)
@@ -1700,6 +1914,7 @@ def api_ui_feature_click():
 
 
 @app.route("/api/cdr/import", methods=["POST"])
+@require_json_auth
 def api_cdr_import():
     rows: list[dict[str, str]] = []
 
@@ -1736,6 +1951,194 @@ def api_cdr_import():
             "imported": result["imported"],
             "failed": result["failed"],
             "errors": result["errors"],
+        }
+    )
+
+
+@app.route("/api/auth/signup-email", methods=["POST"])
+def api_auth_signup_email():
+    payload = request.get_json(silent=True) or {}
+    full_name = str(payload.get("full_name") or "").strip()
+    email = normalize_email(payload.get("email"))
+    password = str(payload.get("password") or "")
+
+    if len(full_name) < 2:
+        return jsonify({"error": "full_name must be at least 2 characters"}), 400
+    if not email or "@" not in email:
+        return jsonify({"error": "Valid email is required"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    if get_user_by_email(email):
+        return jsonify({"error": "An account with this email already exists"}), 409
+
+    password_hash = generate_password_hash(password)
+    now = now_iso()
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO users (full_name, email, password_hash, auth_provider, created_at, last_login_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (full_name, email, password_hash, "email", now, now),
+        )
+
+    set_session_user(int(cursor.lastrowid))
+    return jsonify(
+        {
+            "ok": True,
+            "user": session_user(),
+            "redirect": json_redirect_target(payload),
+        }
+    )
+
+
+@app.route("/api/auth/login-email", methods=["POST"])
+def api_auth_login_email():
+    payload = request.get_json(silent=True) or {}
+    email = normalize_email(payload.get("email"))
+    password = str(payload.get("password") or "")
+    user = get_user_by_email(email)
+
+    if not user or not user.get("password_hash") or not check_password_hash(user["password_hash"], password):
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    with get_db_connection() as conn:
+        conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now_iso(), int(user["id"])))
+    set_session_user(int(user["id"]))
+
+    return jsonify(
+        {
+            "ok": True,
+            "user": session_user(),
+            "redirect": json_redirect_target(payload),
+        }
+    )
+
+
+@app.route("/api/auth/signup-phone", methods=["POST"])
+def api_auth_signup_phone():
+    payload = request.get_json(silent=True) or {}
+    full_name = str(payload.get("full_name") or "").strip()
+    phone = normalize_phone(payload.get("phone"))
+    password = str(payload.get("password") or "")
+
+    if len(full_name) < 2:
+        return jsonify({"error": "full_name must be at least 2 characters"}), 400
+    if not is_valid_phone(phone):
+        return jsonify({"error": "Phone must be in international format, for example +919876543210"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    if get_user_by_phone(phone):
+        return jsonify({"error": "An account with this phone number already exists"}), 409
+
+    password_hash = generate_password_hash(password)
+    now = now_iso()
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO users (full_name, phone, password_hash, auth_provider, created_at, last_login_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (full_name, phone, password_hash, "phone", now, now),
+        )
+
+    set_session_user(int(cursor.lastrowid))
+    return jsonify(
+        {
+            "ok": True,
+            "user": session_user(),
+            "redirect": json_redirect_target(payload),
+        }
+    )
+
+
+@app.route("/api/auth/login-phone", methods=["POST"])
+def api_auth_login_phone():
+    payload = request.get_json(silent=True) or {}
+    phone = normalize_phone(payload.get("phone"))
+    password = str(payload.get("password") or "")
+    user = get_user_by_phone(phone)
+
+    if not user or not user.get("password_hash") or not check_password_hash(user["password_hash"], password):
+        return jsonify({"error": "Invalid phone or password"}), 401
+
+    with get_db_connection() as conn:
+        conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now_iso(), int(user["id"])))
+    set_session_user(int(user["id"]))
+
+    return jsonify(
+        {
+            "ok": True,
+            "user": session_user(),
+            "redirect": json_redirect_target(payload),
+        }
+    )
+
+
+@app.route("/api/auth/google", methods=["POST"])
+def api_auth_google():
+    payload = request.get_json(silent=True) or {}
+    credential = str(payload.get("credential") or "")
+    token_payload = verify_google_credential(credential)
+
+    if not token_payload:
+        return jsonify({"error": "Google sign-in failed. Check GOOGLE_CLIENT_ID and google-auth dependency."}), 400
+
+    user = get_user_by_google_sub(token_payload["sub"])
+    now = now_iso()
+    if user:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET full_name = ?, email = ?, last_login_at = ?
+                WHERE id = ?
+                """,
+                (token_payload["full_name"], token_payload["email"], now, int(user["id"])),
+            )
+        set_session_user(int(user["id"]))
+    else:
+        existing_email = get_user_by_email(token_payload["email"])
+        if existing_email and not existing_email.get("google_sub"):
+            with get_db_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET google_sub = ?, auth_provider = ?, full_name = ?, last_login_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        token_payload["sub"],
+                        "google",
+                        token_payload["full_name"],
+                        now,
+                        int(existing_email["id"]),
+                    ),
+                )
+            set_session_user(int(existing_email["id"]))
+        else:
+            with get_db_connection() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO users (full_name, email, google_sub, auth_provider, created_at, last_login_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        token_payload["full_name"],
+                        token_payload["email"],
+                        token_payload["sub"],
+                        "google",
+                        now,
+                        now,
+                    ),
+                )
+            set_session_user(int(cursor.lastrowid))
+
+    return jsonify(
+        {
+            "ok": True,
+            "user": session_user(),
+            "redirect": json_redirect_target(payload),
         }
     )
 

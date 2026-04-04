@@ -4,6 +4,10 @@ Res Q is a full-stack hackathon prototype that simulates emergency call failures
 
 ## Features
 
+- Authentication:
+  - Sign up and login with Email + Password
+  - Sign up and login with Phone + Password
+  - Google Sign-In (ID token verification on backend)
 - Multi-page web app:
   - Home
   - Emergency Trigger (SOS simulation)
@@ -49,6 +53,11 @@ pip install -r requirements.txt
 python app.py
 ```
 
+Optional environment variables for authentication:
+
+- `SECRET_KEY` (recommended for production)
+- `GOOGLE_CLIENT_ID` (required to enable Google Sign-In)
+
 4. Open:
 
 - http://127.0.0.1:5000/
@@ -68,6 +77,7 @@ The app now persists emergency data to SQLite so records survive restarts.
 - `fallback_events`: fallback delivery details (`sms` / `internet_alert`)
 - `emergency_centers`: synchronized center metadata
 - `ui_actions`: dashboard/emergency page interactions
+- `users`: local users and Google-linked identities
 
 ### Notes
 

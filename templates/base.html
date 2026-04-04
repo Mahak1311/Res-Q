@@ -18,19 +18,32 @@
     <div class="bg-layer bg-layer-two"></div>
 
     <header class="site-header">
-      <a href="{{ url_for('dashboard') }}" class="brand">
+      <a href="{{ url_for('dashboard') if auth_user else url_for('auth_page') }}" class="brand">
         <span class="brand-dot"></span>
         Res Q
       </a>
       <nav class="main-nav">
+        {% if auth_user %}
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
         <a href="{{ url_for('emergency') }}">Emergency</a>
         <a href="{{ url_for('admin') }}">Admin Control</a>
         <a href="{{ url_for('nearby_helpers') }}">Nearby Helpers</a>
         <a href="{{ url_for('logs') }}">Logs</a>
         <a href="{{ url_for('about') }}">About</a>
+        {% else %}
+        <a href="{{ url_for('auth_page') }}">Sign In</a>
+        {% endif %}
       </nav>
       <div class="header-status-group">
+        {% if auth_user %}
+        <div class="auth-chip" title="Authenticated session">
+          <span class="auth-chip-name">{{ auth_user.full_name }}</span>
+          <span class="auth-chip-meta">{{ auth_user.auth_provider|title }}</span>
+        </div>
+        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <button type="submit" class="logout-btn">Logout</button>
+        </form>
+        {% endif %}
         <div class="system-badge">
           <span class="live-dot"></span>
           System Active
