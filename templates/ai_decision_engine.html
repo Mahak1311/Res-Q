@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+
+{% block title %}Res Q | AI Decision Engine{% endblock %}
+
+{% block head %}
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+{% endblock %}
+
+{% block content %}
+<section class="card ai-shell reveal" id="aiShell" data-default-emergency-type="medical">
+  <header class="ai-hero glass-panel">
+    <div>
+      <p class="eyebrow">AI Routing Intelligence</p>
+      <h1>AI Decision Engine</h1>
+      <p class="lead">Scores every eligible center using distance, traffic, availability, and network reliability.</p>
+    </div>
+    <div class="ai-hero-actions">
+      <label class="ai-type-select">
+        <span class="mini-label">Emergency Type</span>
+        <select id="aiEmergencyType">
+          <option value="medical">Medical</option>
+          <option value="police">Police</option>
+          <option value="fire">Fire</option>
+        </select>
+      </label>
+      <button id="aiRecalculateBtn" class="btn btn-primary" type="button">Run AI Decision</button>
+      <a class="btn btn-secondary" href="{{ url_for('emergency') }}">Back to Emergency</a>
+    </div>
+  </header>
+
+  <div class="ai-grid">
+    <main class="ai-map-panel glass-panel">
+      <div class="section-head">
+        <div>
+          <p class="mini-label">Map Integration</p>
+          <h2>Multiple routes and AI-selected path</h2>
+        </div>
+        <span id="aiStatusBadge" class="status-pill neutral">AI is recalculating...</span>
+      </div>
+
+      <div class="map-shell ai-map-shell">
+        <div class="map-legend glass-panel">
+          <span class="legend-item"><i class="legend-dot user"></i>User</span>
+          <span class="legend-item"><i class="legend-dot center"></i>Center</span>
+          <span class="legend-item"><i class="legend-dot route"></i>Route</span>
+        </div>
+        <div id="aiMap"></div>
+        <article class="map-float-card glass-panel ai-selected-card" id="aiSelectedCard">
+          <p class="mini-label">AI Selected</p>
+          <strong id="aiSelectedName">Waiting for analysis</strong>
+          <div class="focus-meta">
+            <span id="aiSelectedScore">Score: --</span>
+            <span id="aiSelectedConfidence">Confidence: --</span>
+          </div>
+          <div class="focus-meta">
+            <span id="aiSelectedTraffic">Traffic: --</span>
+            <span id="aiSelectedAvailability">Availability: --</span>
+          </div>
+        </article>
+      </div>
+    </main>
+
+    <aside class="ai-side-panel">
+      <section class="glass-panel ai-explanation-panel">
+        <div class="section-head">
+          <div>
+            <p class="mini-label">Explanation Panel</p>
+            <h2>Why this center won</h2>
+          </div>
+          <span id="aiConfidenceChip" class="status-pill neutral">Confidence --</span>
+        </div>
+        <p id="aiExplanation" class="ai-explanation-copy">AI is recalculating...</p>
+        <ul id="aiReasonList" class="ai-reason-list"></ul>
+      </section>
+
+      <section class="glass-panel ai-score-panel">
+        <div class="section-head">
+          <div>
+            <p class="mini-label">Bonus Metric</p>
+            <h2>Confidence Score</h2>
+          </div>
+        </div>
+        <div class="confidence-meter">
+          <span id="aiConfidenceBar"></span>
+        </div>
+        <div class="ai-meta-row">
+          <span id="aiDecisionState" class="status-pill warn">AI is recalculating...</span>
+          <span id="aiDecisionCount" class="mini-label">0 options</span>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="glass-panel ai-table-panel reveal delay-2">
+    <div class="section-head">
+      <div>
+        <p class="mini-label">Comparison Table</p>
+        <h2>Center scoring breakdown</h2>
+      </div>
+      <span class="status-pill active">Lower score = better option</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table ai-table" id="aiDecisionTable">
+        <thead>
+          <tr>
+            <th>Center Name</th>
+            <th>Distance</th>
+            <th>Traffic Level</th>
+            <th>Availability</th>
+            <th>Final Score</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+<script src="{{ url_for('static', filename='js/map-utils.js') }}"></script>
+<script src="{{ url_for('static', filename='js/ai-decision.js') }}"></script>
+{% endblock %}

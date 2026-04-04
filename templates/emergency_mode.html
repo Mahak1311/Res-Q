@@ -47,34 +47,75 @@
       <div id="callModeText">Mobile call selected</div>
     </div>
 
-    <div class="mode-metrics">
+    <div class="mode-metrics mode-metrics-{{ emergency_type }}">
       {% if emergency_type == 'medical' %}
-      <article class="metric-mini">
-        <p class="mini-label">Ambulance ETA</p>
-        <strong id="metricOneValue">-- min</strong>
+      <article class="metric-mini metric-medical">
+        <p class="mini-label">🛏 Hospital Beds</p>
+        <strong id="medBedsValue">--</strong>
       </article>
-      <article class="metric-mini">
-        <p class="mini-label">Patient Status</p>
-        <strong id="metricTwoValue">Awaiting triage</strong>
+      <article class="metric-mini metric-medical">
+        <p class="mini-label">🏥 ICU Availability</p>
+        <strong id="medIcuValue">--</strong>
+      </article>
+      <article class="metric-mini metric-medical">
+        <p class="mini-label">👩‍⚕️ Doctor/Staff Ready</p>
+        <strong id="medStaffValue">--</strong>
+      </article>
+      <article class="metric-mini metric-medical">
+        <p class="mini-label">⏱ Avg Response Time</p>
+        <strong id="medResponseValue">-- min</strong>
+      </article>
+      <article class="metric-mini metric-medical metric-wide">
+        <p class="mini-label">✅ Patient Success Rate</p>
+        <strong id="medSuccessValue">--%</strong>
       </article>
       {% elif emergency_type == 'police' %}
-      <article class="metric-mini">
-        <p class="mini-label">Incident Severity</p>
-        <strong id="metricOneValue">--</strong>
+      <article class="metric-mini metric-police">
+        <p class="mini-label">🚓 Patrol Units Nearby</p>
+        <strong id="polUnitsValue">--</strong>
       </article>
-      <article class="metric-mini">
-        <p class="mini-label">Units Dispatched</p>
-        <strong id="metricTwoValue">0</strong>
+      <article class="metric-mini metric-police">
+        <p class="mini-label">📍 Nearest Unit Distance</p>
+        <strong id="polNearestValue">-- km</strong>
+      </article>
+      <article class="metric-mini metric-police">
+        <p class="mini-label">🧭 Zone Risk Level</p>
+        <strong id="polRiskValue">--</strong>
+      </article>
+      <article class="metric-mini metric-police">
+        <p class="mini-label">⚡ Response Speed</p>
+        <strong id="polSpeedValue">-- min</strong>
       </article>
       {% else %}
-      <article class="metric-mini">
-        <p class="mini-label">Fire Intensity</p>
-        <strong id="metricOneValue">--</strong>
+      <article class="metric-mini metric-fire">
+        <p class="mini-label">🚒 Fire Trucks Available</p>
+        <strong id="fireTrucksValue">--</strong>
       </article>
-      <article class="metric-mini">
-        <p class="mini-label">Resources Deployed</p>
-        <strong id="metricTwoValue">0 units / 0 crew</strong>
+      <article class="metric-mini metric-fire">
+        <p class="mini-label">💧 Water Capacity</p>
+        <strong id="fireWaterValue">-- L</strong>
       </article>
+      <article class="metric-mini metric-fire">
+        <p class="mini-label">🧯 Equipment Readiness</p>
+        <strong id="fireEquipValue">--%</strong>
+      </article>
+      <article class="metric-mini metric-fire">
+        <p class="mini-label">🔥 Handling Capability</p>
+        <strong id="fireCapabilityValue">--</strong>
+      </article>
+      {% endif %}
+    </div>
+
+    <div class="mode-labels">
+      {% if emergency_type == 'medical' %}
+      <span id="medLabelOne" class="mode-label-pill">ICU Ready</span>
+      <span id="medLabelTwo" class="mode-label-pill">Critical Care Available</span>
+      {% elif emergency_type == 'police' %}
+      <span id="polLabelOne" class="mode-label-pill">High Priority Zone</span>
+      <span id="polLabelTwo" class="mode-label-pill">Unit Dispatched</span>
+      {% else %}
+      <span id="fireLabelOne" class="mode-label-pill">High Severity</span>
+      <span id="fireLabelTwo" class="mode-label-pill">Rapid Response Required</span>
       {% endif %}
     </div>
 
@@ -83,9 +124,9 @@
       <p class="mini-label">Clinical Protocol</p>
       <h3>Triage + Ambulance Dispatch</h3>
       <ul class="mode-brief-list">
-        <li>Prioritize nearest trauma-ready hospitals.</li>
-        <li>Escalate to backup care center if no response.</li>
-        <li>Keep channel open for ambulance ETA updates.</li>
+        <li>Decision priority: best care quality plus real-time availability.</li>
+        <li>Prefer centers with stronger ICU and staffing readiness.</li>
+        <li>Fallback to next clinical center if care readiness drops.</li>
       </ul>
     </div>
     {% elif emergency_type == 'police' %}
@@ -93,9 +134,9 @@
       <p class="mini-label">Security Protocol</p>
       <h3>Incident Control Dispatch</h3>
       <ul class="mode-brief-list">
-        <li>Route to nearest law enforcement control unit.</li>
-        <li>Escalate to next station on communication failure.</li>
-        <li>Maintain event channel for security updates.</li>
+        <li>Decision priority: fastest nearby patrol dispatch.</li>
+        <li>Optimize for nearest unit distance and response speed.</li>
+        <li>Escalate quickly when zone risk is high.</li>
       </ul>
     </div>
     {% else %}
@@ -103,9 +144,9 @@
       <p class="mini-label">Fire Protocol</p>
       <h3>Suppression + Rescue Dispatch</h3>
       <ul class="mode-brief-list">
-        <li>Prioritize nearest fire response station.</li>
-        <li>Reroute immediately if station channel is unavailable.</li>
-        <li>Track continuous rescue coordination updates.</li>
+        <li>Decision priority: fastest response plus handling capability.</li>
+        <li>Rank centers by truck readiness and equipment reliability.</li>
+        <li>Escalate to higher-capability units during severe conditions.</li>
       </ul>
     </div>
     {% endif %}

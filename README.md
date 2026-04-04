@@ -57,6 +57,42 @@ Optional environment variables for authentication:
 
 - `SECRET_KEY` (recommended for production)
 - `GOOGLE_CLIENT_ID` (required to enable Google Sign-In)
+- `OFFLINE_MODE` (`true`/`false`, default: `false`)
+
+### Google Sign-In Setup
+
+1. Open Google Cloud Console and create/select a project.
+2. Configure OAuth consent screen.
+3. Create credentials: **OAuth client ID** -> **Web application**.
+4. Add authorized origins:
+  - `http://127.0.0.1:5000`
+  - `http://localhost:5000`
+5. Copy the client ID into `.env` as:
+
+```env
+GOOGLE_CLIENT_ID=your_google_web_client_id
+```
+
+6. Restart the Flask server.
+
+The auth page will automatically show the Google sign-in button when `GOOGLE_CLIENT_ID` is set.
+
+### Full Offline Profile
+
+Set this in `.env`:
+
+```env
+OFFLINE_MODE=true
+```
+
+When enabled, the app keeps local functionality but disables internet dependencies:
+
+- Google Sign-In is hidden/disabled (use email, phone, or demo login)
+- Live OSM center fetching is skipped (local center seed data is used)
+- External SMS provider calls are skipped and logged locally
+- Frontend map route requests are skipped; fallback straight-line rendering remains
+
+Online mode is unchanged when `OFFLINE_MODE=false`.
 
 4. Open:
 

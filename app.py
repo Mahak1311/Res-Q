@@ -22,6 +22,32 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
+
+
+def load_local_env_file(env_path: Path) -> None:
+    if not env_path.exists() or not env_path.is_file():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"\"", "'"}:
+            value = value[1:-1]
+
+        if key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_env_file(BASE_DIR / ".env")
+
 DATA_DIR = BASE_DIR / "static" / "data"
 DB_PATH = Path(os.getenv("DATABASE_PATH", str(BASE_DIR / "safetytech.db")))
 DEFAULT_MAP_LAT = float(os.getenv("DEFAULT_MAP_LAT", "20.5937"))
@@ -64,9 +90,11 @@ CALL_LOGS: deque[dict[str, Any]] = deque(maxlen=2000)
 LIVE_REQUESTS: deque[dict[str, Any]] = deque(maxlen=400)
 UI_ACTIONS: deque[dict[str, Any]] = deque(maxlen=600)
 SIMULATION_EVENTS: deque[dict[str, Any]] = deque(maxlen=600)
+AI_DECISION_EVENTS: deque[dict[str, Any]] = deque(maxlen=400)
 CENTER_CONTROL_STATE: dict[str, dict[str, Any]] = {}
 SIMULATION_STATE: dict[str, Any] = {
     "network_congestion": False,
+    "traffic_pressure": False,
     "auto_rerouting": True,
 }
 NEARBY_HELPER_STATE: dict[str, Any] = {
@@ -89,6 +117,7 @@ PUBLIC_ENDPOINTS = {
     "api_auth_signup_phone",
     "api_auth_login_phone",
     "api_auth_google",
+    "api_auth_demo_login",
     "logout",
     "center_status",
     "center_status_alias",
@@ -113,6 +142,11 @@ OSM_CENTER_CACHE: dict[str, Any] = {
     "anchor": None,
     "timestamp": None,
 }
+
+
+def is_offline_mode() -> bool:
+    value = os.getenv("OFFLINE_MODE", "false")
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -177,6 +211,26 @@ def init_db() -> None:
                 timestamp TEXT NOT NULL,
                 FOREIGN KEY (request_id) REFERENCES emergency_requests(request_id)
             );
+
+            CREATE TABLE IF NOT EXISTS ai_decision_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                decision_id TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                request_id TEXT,
+                source TEXT NOT NULL,
+                emergency_type TEXT NOT NULL,
+                user_lat REAL NOT NULL,
+                user_lng REAL NOT NULL,
+                selected_center_id TEXT,
+                selected_center_name TEXT,
+                selected_score REAL NOT NULL,
+                confidence REAL NOT NULL,
+                explanation TEXT NOT NULL,
+                ranked_json TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ai_decision_logs_created_at ON ai_decision_logs(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_ai_decision_logs_request_id ON ai_decision_logs(request_id);
 
             CREATE TABLE IF NOT EXISTS ui_actions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -293,7 +347,8 @@ def json_redirect_target(payload: dict[str, Any], default_endpoint: str = "dashb
 def inject_auth_context() -> dict[str, Any]:
     return {
         "auth_user": session_user(),
-        "google_client_id": os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+        "google_client_id": "" if is_offline_mode() else os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+        "offline_mode": is_offline_mode(),
     }
 
 
@@ -328,6 +383,9 @@ def require_json_auth(func):
 
 
 def verify_google_credential(credential: str) -> dict[str, Any] | None:
+    if is_offline_mode():
+        return None
+
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     if not client_id or not credential:
         return None
@@ -711,6 +769,9 @@ def _cache_anchor_is_close(lat: float, lng: float, max_distance_km: float = 2.0)
 
 
 def fetch_live_osm_centers(lat: float, lng: float, radius_m: int = 10000) -> list[dict[str, Any]]:
+    if is_offline_mode():
+        return []
+
     if _cache_is_fresh() and _cache_anchor_is_close(lat, lng):
         cached = OSM_CENTER_CACHE.get("centers") or []
         return deepcopy(cached)
@@ -797,12 +858,59 @@ def fetch_live_osm_centers(lat: float, lng: float, radius_m: int = 10000) -> lis
 
 
 def configured_emergency_centers() -> list[dict[str, Any]]:
+    def seed_centers() -> list[dict[str, Any]]:
+        try:
+            raw = load_json("emergency_centers.json")
+        except Exception:
+            return []
+
+        normalized: list[dict[str, Any]] = []
+        for row in raw if isinstance(raw, list) else []:
+            try:
+                center_id = str(row.get("id") or "").strip()
+                if not center_id:
+                    continue
+                normalized.append(
+                    {
+                        "id": center_id,
+                        "name": str(row.get("name") or "Unknown Center").strip() or "Unknown Center",
+                        "type": resolve_center_type(center_id, row.get("type")),
+                        "lat": float(row["lat"]),
+                        "lng": float(row["lng"]),
+                        "capacity": int(row.get("capacity") or 0),
+                        "load": int(row.get("load") or 0),
+                    }
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        return normalized
+
     state = get_nearby_helper_state()
     origin = state.get("current_location") or {"lat": DEFAULT_MAP_LAT, "lng": DEFAULT_MAP_LNG}
     lat = float(origin.get("lat", DEFAULT_MAP_LAT))
     lng = float(origin.get("lng", DEFAULT_MAP_LNG))
-    centers = fetch_live_osm_centers(lat, lng)
-    return centers
+    live_centers = fetch_live_osm_centers(lat, lng)
+    fallback_seed = seed_centers()
+
+    required_types = {"hospital", "police", "fire"}
+    present_types = {
+        str(center.get("type") or "").strip().lower()
+        for center in live_centers
+    }
+
+    if required_types.issubset(present_types):
+        return live_centers
+
+    centers_by_id = {center["id"]: center for center in live_centers}
+    for center in fallback_seed:
+        center_type = str(center.get("type") or "").strip().lower()
+        if center_type not in present_types:
+            centers_by_id[center["id"]] = center
+            present_types.add(center_type)
+            if required_types.issubset(present_types):
+                break
+
+    return list(centers_by_id.values())
 
 
 def configured_nearby_helpers() -> list[dict[str, Any]]:
@@ -1058,26 +1166,408 @@ def compute_network_strength(lat: float, lng: float, congestion: bool = False) -
     }
 
 
+def traffic_pressure_enabled() -> bool:
+    return bool(get_simulation_state().get("traffic_pressure"))
+
+
+def traffic_pressure_score(center: dict[str, Any], distance_km: float, simulation_state: dict[str, Any]) -> dict[str, Any]:
+    capacity = max(1, int(center.get("capacity") or 0))
+    effective_load = int(center.get("effective_load") or center.get("load") or 0)
+    load_ratio = min(1.5, effective_load / capacity)
+    traffic_pressure_active = bool(simulation_state.get("traffic_pressure"))
+    network_congestion_active = bool(simulation_state.get("network_congestion"))
+
+    traffic_index = round(
+        min(
+            100.0,
+            18.0
+            + (distance_km * 4.2)
+            + (load_ratio * 44.0)
+            + (10.0 if traffic_pressure_active else 0.0)
+            + (8.0 if network_congestion_active else 0.0),
+        ),
+        2,
+    )
+    if traffic_index < 34:
+        level = "low"
+    elif traffic_index < 67:
+        level = "medium"
+    else:
+        level = "high"
+
+    return {"traffic_index": traffic_index, "traffic_level": level}
+
+
+def ai_score_center(
+    center: dict[str, Any],
+    origin_lat: float,
+    origin_lng: float,
+    emergency_type: str,
+    simulation_state: dict[str, Any],
+) -> dict[str, Any]:
+    enriched = deepcopy(center)
+    distance_km = round(haversine_km(origin_lat, origin_lng, enriched["lat"], enriched["lng"]), 2)
+    runtime = evaluate_center_runtime(enriched)
+    network_sample = compute_network_strength(enriched["lat"], enriched["lng"], congestion=bool(simulation_state.get("network_congestion")))
+    traffic = traffic_pressure_score({**enriched, **runtime}, distance_km, simulation_state)
+
+    availability_label = runtime["status"].capitalize()
+    availability_penalty = 0.0 if runtime["available"] else 64.0 if runtime["status"] == "busy" else 120.0
+    network_reliability = float(network_sample["strength"])
+    network_penalty = round(100.0 - network_reliability, 2)
+    load_ratio = min(1.5, int(runtime["effective_load"]) / max(1, int(enriched.get("capacity") or 0)))
+    load_penalty = round(load_ratio * 14.0, 2)
+    distance_penalty = round(distance_km * 4.8, 2)
+
+    base_components = {
+        "distance_penalty": distance_penalty,
+        "traffic_penalty": traffic["traffic_index"],
+        "availability_penalty": availability_penalty,
+        "network_penalty": network_penalty,
+        "load_penalty": load_penalty,
+    }
+
+    availability_index = max(0.0, min(100.0, 100.0 - (load_ratio * 38.0) - (0.0 if runtime["available"] else 35.0)))
+
+    if emergency_type == "medical":
+        bed_available = max(0, int((enriched.get("capacity") or 0) - runtime["effective_load"]))
+        icu_available = max(0, int(round((enriched.get("capacity") or 0) * 0.35 - (runtime["effective_load"] * 0.22))))
+        staff_available = max(1, int(round((enriched.get("capacity") or 0) * 0.8 - (runtime["effective_load"] * 0.45))))
+        response_time_min = round(max(3.0, (distance_km * 2.1) + (traffic["traffic_index"] * 0.045) + (4.0 if not runtime["available"] else 0.0)), 1)
+        success_rate = round(max(48.0, min(99.0, 95.0 - (load_ratio * 18.0) - (traffic["traffic_index"] * 0.12) - (network_penalty * 0.15))), 1)
+        care_quality = max(0.0, min(100.0, (success_rate * 0.72) + (network_reliability * 0.28)))
+        clinical_readiness = max(0.0, min(100.0, (availability_index * 0.55) + (min(100.0, icu_available * 12.0) * 0.2) + (min(100.0, staff_available * 3.0) * 0.25)))
+
+        final_score = round(
+            (100.0 - care_quality) * 1.45
+            + (100.0 - clinical_readiness) * 1.2
+            + (response_time_min * 1.85)
+            + base_components["availability_penalty"]
+            + (base_components["distance_penalty"] * 0.35)
+            + (base_components["traffic_penalty"] * 0.24),
+            2,
+        )
+        reason_parts = [
+            f"care quality {care_quality:.0f}",
+            f"readiness {clinical_readiness:.0f}",
+            f"response {response_time_min:.1f} min",
+        ]
+        domain_profile = {
+            "priority": "best care quality + availability",
+            "hospital_bed_availability": bed_available,
+            "icu_availability": icu_available,
+            "staff_availability": staff_available,
+            "average_response_time_min": response_time_min,
+            "patient_success_rate": success_rate,
+            "labels": [
+                "ICU Ready" if icu_available >= 2 else "ICU Limited",
+                "Critical Care Available" if staff_available >= 6 else "Critical Care Standby",
+            ],
+        }
+    elif emergency_type == "police":
+        patrol_units = max(1, int(round((enriched.get("capacity") or 0) * 0.42 - (runtime["effective_load"] * 0.26))))
+        nearest_unit_distance = round(max(0.2, distance_km * 0.86), 2)
+        response_speed_min = round(max(2.0, (nearest_unit_distance * 1.55) + (traffic["traffic_index"] * 0.032) + (3.0 if not runtime["available"] else 0.0)), 1)
+        zone_risk_score = min(100.0, (traffic["traffic_index"] * 0.68) + (network_penalty * 0.22) + (load_ratio * 26.0))
+        if zone_risk_score < 36:
+            zone_risk_level = "low"
+            risk_modifier = 4.0
+        elif zone_risk_score < 68:
+            zone_risk_level = "medium"
+            risk_modifier = 0.0
+        else:
+            zone_risk_level = "high"
+            risk_modifier = -8.0
+
+        final_score = round(
+            (response_speed_min * 8.4)
+            + (nearest_unit_distance * 7.0)
+            + base_components["availability_penalty"]
+            + (base_components["network_penalty"] * 0.24)
+            + (base_components["load_penalty"] * 0.9)
+            + risk_modifier,
+            2,
+        )
+        reason_parts = [
+            f"response {response_speed_min:.1f} min",
+            f"unit distance {nearest_unit_distance:.2f} km",
+            f"zone risk {zone_risk_level}",
+        ]
+        domain_profile = {
+            "priority": "fastest nearby unit",
+            "patrol_units_nearby": patrol_units,
+            "nearest_unit_distance_km": nearest_unit_distance,
+            "zone_risk_level": zone_risk_level,
+            "response_speed_min": response_speed_min,
+            "labels": [
+                "High Priority Zone" if zone_risk_level == "high" else "Zone Under Watch",
+                "Unit Dispatched" if runtime["available"] else "Unit Queued",
+            ],
+        }
+    else:
+        fire_trucks = max(1, int(round((enriched.get("capacity") or 0) * 0.5 - (runtime["effective_load"] * 0.32))))
+        water_capacity = max(3000, fire_trucks * 3600)
+        equipment_readiness = round(max(45.0, min(99.0, 92.0 - (load_ratio * 20.0) - (network_penalty * 0.18) - (traffic["traffic_index"] * 0.08))), 1)
+        response_speed_min = round(max(2.0, (distance_km * 1.7) + (traffic["traffic_index"] * 0.035) + (3.5 if not runtime["available"] else 0.0)), 1)
+        capability_score = max(0.0, min(100.0, (equipment_readiness * 0.58) + (min(100.0, fire_trucks * 11.0) * 0.42)))
+        if capability_score >= 80:
+            fire_capability = "high"
+        elif capability_score >= 60:
+            fire_capability = "medium"
+        else:
+            fire_capability = "limited"
+
+        final_score = round(
+            (response_speed_min * 8.8)
+            + ((100.0 - capability_score) * 1.15)
+            + base_components["availability_penalty"]
+            + (base_components["traffic_penalty"] * 0.26)
+            + (base_components["network_penalty"] * 0.2),
+            2,
+        )
+        reason_parts = [
+            f"response {response_speed_min:.1f} min",
+            f"capability {fire_capability}",
+            f"equipment readiness {equipment_readiness:.0f}%",
+        ]
+        domain_profile = {
+            "priority": "fastest response + capability",
+            "fire_trucks_available": fire_trucks,
+            "water_capacity_liters": water_capacity,
+            "equipment_readiness": equipment_readiness,
+            "fire_handling_capability": fire_capability,
+            "labels": [
+                "High Severity" if traffic["traffic_level"] == "high" else "Containment Ready",
+                "Rapid Response Required" if response_speed_min > 7.0 else "Rapid Response Online",
+            ],
+        }
+
+    reason_parts.extend(
+        [
+            f"{traffic['traffic_level']} traffic",
+            f"{availability_label.lower()} availability",
+            f"{int(network_reliability)}% network reliability",
+        ]
+    )
+    if traffic_pressure_enabled() or simulation_state.get("traffic_pressure"):
+        reason_parts.append("traffic simulation active")
+    if simulation_state.get("network_congestion"):
+        reason_parts.append("network congestion active")
+
+    confidence = round(
+        max(
+            35.0,
+            min(
+                99.0,
+                72.0
+                - (final_score * 0.18)
+                + (12.0 if runtime["available"] else -10.0)
+                + (8.0 if traffic["traffic_level"] == "low" else 0.0)
+                + (6.0 if network_reliability >= 70 else 0.0),
+            ),
+        ),
+        1,
+    )
+
+    enriched.update(
+        {
+            "distance_km": distance_km,
+            "distance_meters": int(round(distance_km * 1000)),
+            "traffic_index": traffic["traffic_index"],
+            "traffic_level": traffic["traffic_level"],
+            "traffic_label": traffic["traffic_level"].capitalize(),
+            "availability_label": availability_label,
+            "availability": runtime["status"],
+            "network_reliability": int(network_reliability),
+            "score_components": base_components,
+            "ai_score": final_score,
+            "confidence_score": confidence,
+            "ai_confidence": confidence,
+            "ai_reasons": reason_parts,
+            "ai_explanation": ", ".join(reason_parts),
+            "domain_profile": domain_profile,
+            "runtime_status": runtime["status"],
+            "available": runtime["available"],
+            "overload": runtime["overload"],
+            "force_failure": runtime["force_failure"],
+            "effective_load": runtime["effective_load"],
+            "load_level": runtime["load_level"],
+            "priority_score": runtime["priority_score"],
+        }
+    )
+    return enriched
+
+
+def build_ai_decision(
+    origin_lat: float,
+    origin_lng: float,
+    emergency_type: str = "medical",
+    *,
+    source: str = "ai-engine",
+    request_id: str | None = None,
+    persist: bool = False,
+) -> dict[str, Any]:
+    simulation_state = get_simulation_state()
+    normalized_type = normalize_emergency_type(emergency_type)
+    expected_center_type = EMERGENCY_TYPE_CONFIG[normalized_type]["center_type"]
+
+    ranked = [
+        ai_score_center(center, origin_lat, origin_lng, normalized_type, simulation_state)
+        for center in load_emergency_centers()
+        if str(center.get("type") or "").strip().lower() == expected_center_type
+    ]
+    ranked.sort(key=lambda item: (item["ai_score"], item["distance_km"]))
+
+    selected_center = deepcopy(ranked[0]) if ranked else None
+    if selected_center:
+        selection_reason = ", ".join(selected_center.get("ai_reasons") or [])
+        domain_profile = selected_center.get("domain_profile") or {}
+        if normalized_type == "medical":
+            explanation = (
+                "Chosen for strongest clinical outcome profile: "
+                f"{domain_profile.get('patient_success_rate', '--')}% success rate, "
+                f"ICU {domain_profile.get('icu_availability', '--')} and staff {domain_profile.get('staff_availability', '--')} available."
+            )
+        elif normalized_type == "police":
+            explanation = (
+                "Chosen for fastest nearby law enforcement dispatch: "
+                f"{domain_profile.get('patrol_units_nearby', '--')} patrol units with "
+                f"{domain_profile.get('response_speed_min', '--')} min response speed."
+            )
+        else:
+            explanation = (
+                "Chosen for best fire response capability mix: "
+                f"{domain_profile.get('fire_trucks_available', '--')} trucks, "
+                f"{domain_profile.get('equipment_readiness', '--')}% equipment readiness."
+            )
+        selected_center["ai_explanation"] = explanation
+    else:
+        selection_reason = "no available centers"
+        explanation = "No suitable emergency center found."
+
+    confidence = selected_center["confidence_score"] if selected_center else 0.0
+    if len(ranked) > 1:
+        spread = max(0.0, ranked[1]["ai_score"] - ranked[0]["ai_score"])
+        confidence = round(min(99.0, confidence + min(12.0, spread * 0.35)), 1)
+
+    decision = {
+        "decision_id": request_id or f"AI-{int(datetime.now().timestamp() * 1000)}",
+        "created_at": now_iso(),
+        "source": source,
+        "request_id": request_id,
+        "emergency_type": normalized_type,
+        "origin": {"lat": origin_lat, "lng": origin_lng},
+        "selected_center": selected_center,
+        "ranked_centers": ranked,
+        "confidence_score": confidence,
+        "explanation": explanation,
+        "selection_reason": selection_reason,
+        "recalculating_message": "AI is recalculating..." if not ranked else "AI decision ready",
+        "simulation_state": simulation_state,
+    }
+
+    if persist:
+        log_ai_decision(decision)
+
+    return decision
+
+
+def log_ai_decision(decision: dict[str, Any]) -> None:
+    selected = decision.get("selected_center") or {}
+    ranked_json = json.dumps(decision.get("ranked_centers") or [])
+
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO ai_decision_logs (
+                decision_id,
+                created_at,
+                request_id,
+                source,
+                emergency_type,
+                user_lat,
+                user_lng,
+                selected_center_id,
+                selected_center_name,
+                selected_score,
+                confidence,
+                explanation,
+                ranked_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                decision["decision_id"],
+                decision["created_at"],
+                decision.get("request_id"),
+                decision.get("source", "ai-engine"),
+                decision.get("emergency_type", "medical"),
+                float(decision["origin"]["lat"]),
+                float(decision["origin"]["lng"]),
+                selected.get("id"),
+                selected.get("name"),
+                float(selected.get("ai_score") or 0),
+                float(decision.get("confidence_score") or 0),
+                decision.get("explanation", ""),
+                ranked_json,
+            ),
+        )
+
+    with STORE_LOCK:
+        AI_DECISION_EVENTS.appendleft({**decision, "selected_center": selected, "ranked_centers": decision.get("ranked_centers") or []})
+
+
+def fetch_ai_decisions_from_db(limit: int = 50) -> list[dict[str, Any]]:
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT decision_id, created_at, request_id, source, emergency_type,
+                   user_lat, user_lng, selected_center_name, selected_score, confidence,
+                   explanation, ranked_json
+            FROM ai_decision_logs
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    return [
+        {
+            "timestamp": row["created_at"],
+            "request_id": row["request_id"] or row["decision_id"],
+            "source": row["source"],
+            "kind": "ai",
+            "final_status": "connected",
+            "rerouted": False,
+            "network_strength": int(round(float(row["confidence"]))),
+            "user_lat": row["user_lat"],
+            "user_lng": row["user_lng"],
+            "summary": row["explanation"],
+            "target": row["selected_center_name"] or "AI selected center",
+            "details": {
+                "selected_center": row["selected_center_name"],
+                "selected_score": row["selected_score"],
+                "confidence": row["confidence"],
+                "ranked": json.loads(row["ranked_json"]),
+                "explanation": row["explanation"],
+            },
+        }
+        for row in rows
+    ]
+
+
+def api_ai_decision_payload(origin_lat: float, origin_lng: float, emergency_type: str, request_id: str | None = None, persist: bool = False, source: str = "ai-engine") -> dict[str, Any]:
+    decision = build_ai_decision(origin_lat, origin_lng, emergency_type, source=source, request_id=request_id, persist=persist)
+    return decision
+
+
 def normalize_emergency_type(value: Any) -> str:
     emergency_type = str(value or "medical").strip().lower()
     return emergency_type if emergency_type in EMERGENCY_TYPE_CONFIG else "medical"
 
 
 def sorted_centers(lat: float, lng: float, emergency_type: str = "medical") -> list[dict[str, Any]]:
-    ranked = []
-    expected_center_type = EMERGENCY_TYPE_CONFIG[normalize_emergency_type(emergency_type)]["center_type"]
-    for center in load_emergency_centers():
-        if str(center.get("type") or "").strip().lower() != expected_center_type:
-            continue
-        c = deepcopy(center)
-        c["distance_km"] = round(haversine_km(lat, lng, c["lat"], c["lng"]), 2)
-        runtime = evaluate_center_runtime(c)
-        c.update(runtime)
-        c["load_level"] = load_level_for_center(c, runtime)
-        c["priority_score"] = routing_priority_for_center(c, runtime)
-        ranked.append(c)
-    ranked.sort(key=lambda x: (x["priority_score"], x["distance_km"]))
-    return ranked
+    decision = build_ai_decision(lat, lng, emergency_type, source="routing-scorer", persist=False)
+    return decision["ranked_centers"]
 
 
 def load_level_for_center(center: dict[str, Any], runtime: dict[str, Any] | None = None) -> str:
@@ -1196,6 +1686,7 @@ def get_simulation_state() -> dict[str, Any]:
 def update_simulation_state(payload: dict[str, Any]) -> dict[str, Any]:
     next_state = {
         "network_congestion": parse_bool(payload.get("network_congestion"), SIMULATION_STATE["network_congestion"]),
+        "traffic_pressure": parse_bool(payload.get("traffic_pressure"), SIMULATION_STATE["traffic_pressure"]),
         "auto_rerouting": parse_bool(payload.get("auto_rerouting"), SIMULATION_STATE["auto_rerouting"]),
     }
 
@@ -1303,6 +1794,19 @@ def check_center_availability(center_id: str, center: dict[str, Any] | None = No
 
 
 def send_alert_sms(location: dict[str, float], center: dict[str, Any] | None) -> dict[str, Any]:
+    if is_offline_mode():
+        center_label = center["name"] if center else "No center available"
+        print(
+            f"[ALERT_SMS_OFFLINE] Res Q alert: routing failed for location "
+            f"({location['lat']:.6f}, {location['lng']:.6f}). {center_label}."
+        )
+        return {
+            "channel": "sms",
+            "status": "logged",
+            "timestamp": now_iso(),
+            "provider": "offline",
+        }
+
     sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
     token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
     sender = os.getenv("TWILIO_FROM_NUMBER", "").strip()
@@ -1354,7 +1858,8 @@ def route_emergency_call(payload: dict[str, Any]) -> dict[str, Any]:
     request_id = str(payload.get("request_id") or f"REQ-{int(datetime.now().timestamp() * 1000)}")
     simulation_state = get_simulation_state()
 
-    centers = sorted_centers(lat, lng, emergency_type=emergency_type)
+    decision = build_ai_decision(lat, lng, emergency_type, source="emergency-routing", request_id=request_id, persist=True)
+    centers = decision["ranked_centers"]
     network_data = compute_network_strength(lat, lng, congestion=bool(simulation_state.get("network_congestion")))
 
     attempts: list[dict[str, Any]] = []
@@ -1456,6 +1961,7 @@ def route_emergency_call(payload: dict[str, Any]) -> dict[str, Any]:
         "final_center": selected_center,
         "fallback": fallback,
         "messages": [message],
+        "ai_decision": decision,
         "simulation_state": simulation_state,
     }
 
@@ -1479,6 +1985,7 @@ def log_event(entry: dict[str, Any]) -> None:
                 "attempts": entry["attempts"],
                 "fallback": entry["fallback"],
                 "messages": entry["messages"],
+                "ai_decision": entry.get("ai_decision"),
             },
         }
 
@@ -1745,7 +2252,7 @@ def api_admin_simulation():
 @require_json_auth
 def api_admin_simulation_reset():
     with STORE_LOCK:
-        SIMULATION_STATE.update({"network_congestion": False, "auto_rerouting": True})
+        SIMULATION_STATE.update({"network_congestion": False, "traffic_pressure": False, "auto_rerouting": True})
         CENTER_CONTROL_STATE.clear()
         SIMULATION_EVENTS.appendleft(
             {
@@ -1841,6 +2348,7 @@ def api_logs():
         logs_snapshot = list(CALL_LOGS)
         simulation_snapshot = list(SIMULATION_EVENTS)
         nearby_snapshot = list(UI_ACTIONS)
+        ai_snapshot = list(AI_DECISION_EVENTS)
 
     if not logs_snapshot:
         logs_snapshot = fetch_logs_from_db(status_filter=status_filter)
@@ -1893,8 +2401,32 @@ def api_logs():
             }
         )
 
+    ai_rows: list[dict[str, Any]] = []
+    for event in ai_snapshot:
+        ai_rows.append(
+            {
+                "timestamp": event["created_at"],
+                "request_id": event.get("request_id") or event["decision_id"],
+                "source": event.get("source", "ai-engine"),
+                "final_status": "connected",
+                "rerouted": False,
+                "network_strength": int(round(float(event.get("confidence_score") or 0))),
+                "user_lat": float(event["origin"]["lat"]),
+                "user_lng": float(event["origin"]["lng"]),
+                "details": {
+                    "attempts": [],
+                    "fallback": None,
+                    "messages": [event.get("explanation", "AI decision generated")],
+                    "ai_decision": event,
+                },
+                "kind": "ai",
+                "summary": event.get("explanation", "AI decision generated"),
+                "target": event.get("selected_center", {}).get("name", "AI selected center"),
+            }
+        )
+
     if status_filter == "all":
-        logs_snapshot = nearby_rows + simulation_rows + logs_snapshot
+        logs_snapshot = ai_rows + nearby_rows + simulation_rows + logs_snapshot
     elif status_filter == "failed":
         logs_snapshot = [item for item in logs_snapshot if item["final_status"] in {"fallback_sent", "unresolved"}]
     elif status_filter == "rerouted":
@@ -1903,6 +2435,35 @@ def api_logs():
         logs_snapshot = [item for item in logs_snapshot if item["final_status"] == "connected"]
 
     return jsonify(logs_snapshot)
+
+
+@app.route("/ai-decision-engine")
+def ai_decision_engine_page() -> str:
+    return render_template("ai_decision_engine.html")
+
+
+@app.route("/ai")
+def ai_decision_engine_alias() -> str:
+    return redirect(url_for("ai_decision_engine_page"))
+
+
+@app.route("/api/ai-decision", methods=["GET", "POST"])
+@require_json_auth
+def api_ai_decision():
+    if request.method == "GET":
+        payload = request.args
+    else:
+        payload = request.get_json(silent=True) or {}
+
+    emergency_type = payload.get("emergency_type") or "medical"
+    lat = float(payload.get("lat") or DEFAULT_MAP_LAT)
+    lng = float(payload.get("lng") or DEFAULT_MAP_LNG)
+    persist = parse_bool(payload.get("persist"), False)
+    source = str(payload.get("source") or "ai-page").strip() or "ai-page"
+    request_id = str(payload.get("request_id") or "").strip() or None
+
+    decision = api_ai_decision_payload(lat, lng, emergency_type, request_id=request_id, persist=persist, source=source)
+    return jsonify(decision)
 
 
 @app.route("/api/ui/feature-click", methods=["POST"])
@@ -2077,6 +2638,9 @@ def api_auth_login_phone():
 
 @app.route("/api/auth/google", methods=["POST"])
 def api_auth_google():
+    if is_offline_mode():
+        return jsonify({"error": "Google sign-in is unavailable in OFFLINE_MODE. Use email, phone, or demo login."}), 400
+
     payload = request.get_json(silent=True) or {}
     credential = str(payload.get("credential") or "")
     token_payload = verify_google_credential(credential)
@@ -2134,6 +2698,46 @@ def api_auth_google():
                 )
             set_session_user(int(cursor.lastrowid))
 
+    return jsonify(
+        {
+            "ok": True,
+            "user": session_user(),
+            "redirect": json_redirect_target(payload),
+        }
+    )
+
+
+@app.route("/api/auth/demo", methods=["POST"])
+def api_auth_demo_login():
+    payload = request.get_json(silent=True) or {}
+    now = now_iso()
+    demo_email = "demo@resq.local"
+    demo_name = "Demo Res Q User"
+
+    user = get_user_by_email(demo_email)
+    if user:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET full_name = ?, auth_provider = ?, last_login_at = ?
+                WHERE id = ?
+                """,
+                (demo_name, "demo", now, int(user["id"])),
+            )
+        demo_user_id = int(user["id"])
+    else:
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO users (full_name, email, auth_provider, created_at, last_login_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (demo_name, demo_email, "demo", now, now),
+            )
+        demo_user_id = int(cursor.lastrowid)
+
+    set_session_user(demo_user_id)
     return jsonify(
         {
             "ok": True,

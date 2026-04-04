@@ -5,6 +5,7 @@ const adminCenterCount = document.getElementById("adminCenterCount");
 const adminLoadCount = document.getElementById("adminLoadCount");
 const adminFailureCount = document.getElementById("adminFailureCount");
 const networkCongestionToggle = document.getElementById("networkCongestionToggle");
+const trafficPressureToggle = document.getElementById("trafficPressureToggle");
 const autoReroutingToggle = document.getElementById("autoReroutingToggle");
 const resetSimulationsBtn = document.getElementById("resetSimulationsBtn");
 const networkStateBadge = document.getElementById("networkStateBadge");
@@ -15,6 +16,7 @@ const state = {
   centers: [],
   simulationState: {
     network_congestion: false,
+    traffic_pressure: false,
     auto_rerouting: true,
   },
   recentEvents: [],
@@ -76,6 +78,9 @@ function loadLevelWidth(level) {
 function renderGlobalState() {
   if (networkCongestionToggle) {
     networkCongestionToggle.checked = Boolean(state.simulationState.network_congestion);
+  }
+  if (trafficPressureToggle) {
+    trafficPressureToggle.checked = Boolean(state.simulationState.traffic_pressure);
   }
   if (autoReroutingToggle) {
     autoReroutingToggle.checked = Boolean(state.simulationState.auto_rerouting);
@@ -144,6 +149,7 @@ function publishAdminContext() {
     offlineCount,
     forcedFailures,
     networkCongestion: Boolean(state.simulationState.network_congestion),
+    trafficPressure: Boolean(state.simulationState.traffic_pressure),
     autoRerouting: Boolean(state.simulationState.auto_rerouting),
   });
 }
@@ -357,6 +363,7 @@ async function updateSimulationState() {
     method: "POST",
     body: JSON.stringify({
       network_congestion: networkCongestionToggle?.checked || false,
+      traffic_pressure: trafficPressureToggle?.checked || false,
       auto_rerouting: autoReroutingToggle?.checked || false,
     }),
   });
@@ -376,6 +383,15 @@ async function resetSimulationState() {
 
 if (networkCongestionToggle) {
   networkCongestionToggle.addEventListener("change", () => {
+    updateSimulationState().catch((error) => {
+      pushMessage(error.message, "bad");
+      setSyncState("Sync failed", "bad");
+    });
+  });
+}
+
+if (trafficPressureToggle) {
+  trafficPressureToggle.addEventListener("change", () => {
     updateSimulationState().catch((error) => {
       pushMessage(error.message, "bad");
       setSyncState("Sync failed", "bad");

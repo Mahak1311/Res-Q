@@ -8,7 +8,8 @@
 	const params = new URLSearchParams(window.location.search);
 	const requestedNext = params.get("next") || "/home";
 	const safeNext = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/home";
-	const targetUrl = safeNext === "/" ? "/home" : safeNext;
+	const blockedNextPaths = new Set(["/ai", "/ai-decision-engine"]);
+	const targetUrl = safeNext === "/" || blockedNextPaths.has(safeNext) ? "/home" : safeNext;
 
 	if (startButton) {
 		startButton.setAttribute("href", targetUrl);

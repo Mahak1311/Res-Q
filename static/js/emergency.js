@@ -11,8 +11,34 @@ const runtimeHint = document.getElementById("runtimeHint");
 const attemptTableBody = document.querySelector("#attemptTable tbody");
 const modeButtons = document.querySelectorAll(".mode-btn");
 const emergencyConsole = document.getElementById("emergencyConsole");
-const metricOneValue = document.getElementById("metricOneValue");
-const metricTwoValue = document.getElementById("metricTwoValue");
+
+const MEDICAL_ELEMENTS = {
+  beds: document.getElementById("medBedsValue"),
+  icu: document.getElementById("medIcuValue"),
+  staff: document.getElementById("medStaffValue"),
+  response: document.getElementById("medResponseValue"),
+  success: document.getElementById("medSuccessValue"),
+  labelOne: document.getElementById("medLabelOne"),
+  labelTwo: document.getElementById("medLabelTwo"),
+};
+
+const POLICE_ELEMENTS = {
+  units: document.getElementById("polUnitsValue"),
+  nearest: document.getElementById("polNearestValue"),
+  risk: document.getElementById("polRiskValue"),
+  speed: document.getElementById("polSpeedValue"),
+  labelOne: document.getElementById("polLabelOne"),
+  labelTwo: document.getElementById("polLabelTwo"),
+};
+
+const FIRE_ELEMENTS = {
+  trucks: document.getElementById("fireTrucksValue"),
+  water: document.getElementById("fireWaterValue"),
+  equip: document.getElementById("fireEquipValue"),
+  capability: document.getElementById("fireCapabilityValue"),
+  labelOne: document.getElementById("fireLabelOne"),
+  labelTwo: document.getElementById("fireLabelTwo"),
+};
 
 const {
   createMap,
@@ -48,12 +74,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const emergencyType = emergencyConsole?.dataset.emergencyType || "medical";
 const emergencyModeLabel = emergencyConsole?.dataset.modeLabel || "Emergency Mode Active";
 const emergencyDescription = emergencyConsole?.dataset.modeDescription || "Emergency dispatch routing";
-
-const SERVICE_LABELS = {
-  medical: "ambulance response unit",
-  police: "security dispatch unit",
-  fire: "fire response unit",
-};
 
 const TYPE_THEME = {
   medical: {
@@ -241,37 +261,82 @@ function createCenterIcon(state = "idle") {
   });
 }
 
-function updateModeMetrics({
+function updateDomainMetrics({
   attemptNumber = 0,
   status = "pending",
   distanceKm = 0,
   strength = 55,
+  domainProfile = null,
 }) {
-  if (!metricOneValue || !metricTwoValue) {
-    return;
-  }
-
   if (emergencyType === "medical") {
-    const eta = Math.max(2, Math.round(distanceKm * 1.7 + 3));
-    const patientStatus = status === "connected" ? (strength < 42 ? "Critical" : "Stable") : "Critical";
-    metricOneValue.textContent = `${eta} min`;
-    metricTwoValue.textContent = patientStatus;
+    if (!MEDICAL_ELEMENTS.beds) {
+      return;
+    }
+    const beds = domainProfile?.hospital_bed_availability ?? Math.max(1, 16 - attemptNumber * 2);
+    const icu = domainProfile?.icu_availability ?? Math.max(0, 7 - attemptNumber);
+    const staff = domainProfile?.staff_availability ?? Math.max(2, 18 - attemptNumber * 2);
+    const response = domainProfile?.average_response_time_min ?? Math.max(3, Math.round(distanceKm * 2.0 + 4));
+    const success = domainProfile?.patient_success_rate ?? Math.max(58, Math.round(91 - attemptNumber * 4 - (100 - strength) * 0.16));
+    MEDICAL_ELEMENTS.beds.textContent = `${beds}`;
+    MEDICAL_ELEMENTS.icu.textContent = `${icu}`;
+    MEDICAL_ELEMENTS.staff.textContent = `${staff}`;
+    MEDICAL_ELEMENTS.response.textContent = `${Number(response).toFixed(1)} min`;
+    MEDICAL_ELEMENTS.success.textContent = `${Number(success).toFixed(1)}%`;
+
+    const labels = Array.isArray(domainProfile?.labels) ? domainProfile.labels : [];
+    if (MEDICAL_ELEMENTS.labelOne) {
+      MEDICAL_ELEMENTS.labelOne.textContent = labels[0] || (icu >= 2 ? "ICU Ready" : "ICU Limited");
+    }
+    if (MEDICAL_ELEMENTS.labelTwo) {
+      MEDICAL_ELEMENTS.labelTwo.textContent = labels[1] || (status === "connected" ? "Critical Care Available" : "Critical Care Standby");
+    }
     return;
   }
 
   if (emergencyType === "police") {
-    const severity = status !== "connected" ? "High" : strength < 40 ? "High" : attemptNumber > 1 ? "Medium" : "Low";
-    const units = Math.max(1, attemptNumber + (status === "connected" ? 1 : 0));
-    metricOneValue.textContent = severity;
-    metricTwoValue.textContent = `${units}`;
+    if (!POLICE_ELEMENTS.units) {
+      return;
+    }
+
+    const units = domainProfile?.patrol_units_nearby ?? Math.max(1, 4 - Math.floor(attemptNumber / 2));
+    const nearestKm = domainProfile?.nearest_unit_distance_km ?? Math.max(0.2, Number((distanceKm * 0.9).toFixed(2)));
+    const risk = (domainProfile?.zone_risk_level || (status !== "connected" ? "high" : strength < 45 ? "medium" : "low")).toUpperCase();
+    const speed = domainProfile?.response_speed_min ?? Math.max(2, Number((distanceKm * 1.45 + 2.8).toFixed(1)));
+    POLICE_ELEMENTS.units.textContent = `${units}`;
+    POLICE_ELEMENTS.nearest.textContent = `${Number(nearestKm).toFixed(2)} km`;
+    POLICE_ELEMENTS.risk.textContent = risk;
+    POLICE_ELEMENTS.speed.textContent = `${Number(speed).toFixed(1)} min`;
+
+    const labels = Array.isArray(domainProfile?.labels) ? domainProfile.labels : [];
+    if (POLICE_ELEMENTS.labelOne) {
+      POLICE_ELEMENTS.labelOne.textContent = labels[0] || (risk === "HIGH" ? "High Priority Zone" : "Zone Under Watch");
+    }
+    if (POLICE_ELEMENTS.labelTwo) {
+      POLICE_ELEMENTS.labelTwo.textContent = labels[1] || (status === "connected" ? "Unit Dispatched" : "Dispatch Queue Active");
+    }
     return;
   }
 
-  const intensity = status !== "connected" ? "High" : strength < 45 ? "Medium" : "Low";
-  const waterUnits = Math.max(1, attemptNumber);
-  const crew = Math.max(4, attemptNumber * 3);
-  metricOneValue.textContent = intensity;
-  metricTwoValue.textContent = `${waterUnits} units / ${crew} crew`;
+  if (!FIRE_ELEMENTS.trucks) {
+    return;
+  }
+
+  const trucks = domainProfile?.fire_trucks_available ?? Math.max(1, 5 - Math.floor(attemptNumber / 2));
+  const water = domainProfile?.water_capacity_liters ?? trucks * 3200;
+  const equip = domainProfile?.equipment_readiness ?? Math.max(52, Math.round(89 - attemptNumber * 3 - (100 - strength) * 0.14));
+  const capability = (domainProfile?.fire_handling_capability || (status !== "connected" ? "high" : equip >= 80 ? "high" : equip >= 64 ? "medium" : "limited")).toUpperCase();
+  FIRE_ELEMENTS.trucks.textContent = `${trucks}`;
+  FIRE_ELEMENTS.water.textContent = `${Math.round(water).toLocaleString()} L`;
+  FIRE_ELEMENTS.equip.textContent = `${Number(equip).toFixed(1)}%`;
+  FIRE_ELEMENTS.capability.textContent = capability;
+
+  const labels = Array.isArray(domainProfile?.labels) ? domainProfile.labels : [];
+  if (FIRE_ELEMENTS.labelOne) {
+    FIRE_ELEMENTS.labelOne.textContent = labels[0] || (capability === "HIGH" ? "High Severity" : "Containment Ready");
+  }
+  if (FIRE_ELEMENTS.labelTwo) {
+    FIRE_ELEMENTS.labelTwo.textContent = labels[1] || (status === "connected" ? "Rapid Response Online" : "Rapid Response Required");
+  }
 }
 
 function addAttemptRow(attempt) {
@@ -577,12 +642,13 @@ function buildVisualAttempts(data, location) {
 async function runFlow(data, location) {
   const visualAttempts = buildVisualAttempts(data, location);
   let strength = Number(data.network?.strength || 55);
-  const serviceLabel = SERVICE_LABELS[emergencyType] || activeTheme.centerLabel;
+  const scoredCenters = Array.isArray(data.ai_decision?.ranked_centers) ? data.ai_decision.ranked_centers : [];
+  const centerProfileMap = new Map(scoredCenters.map((center) => [center.id, center]));
 
   addMessage(activeTheme.startText, "neutral");
   statusText.textContent = activeTheme.startText;
   setLoader(true, "Initializing emergency route checks...");
-  updateModeMetrics({
+  updateDomainMetrics({
     attemptNumber: 0,
     status: "pending",
     distanceKm: 0,
@@ -606,6 +672,7 @@ async function runFlow(data, location) {
     }
 
     const marker = centerMarkers.get(center.id);
+    const scoredCenter = centerProfileMap.get(center.id);
     if (marker) {
       styleCenterMarker(marker, "active");
       marker.openPopup();
@@ -624,11 +691,12 @@ async function runFlow(data, location) {
     }
 
     addAttemptRow(attempt);
-    updateModeMetrics({
+    updateDomainMetrics({
       attemptNumber: attempt.attempt,
       status: attempt.status,
       distanceKm: Number(attempt.distance_km || 0),
       strength,
+      domainProfile: scoredCenter?.domain_profile,
     });
 
     if (attempt.status === "connected") {
@@ -650,11 +718,12 @@ async function runFlow(data, location) {
       emergencyContext.reroutingNote = `${center.name} accepted the call`;
       pushEmergencyTimeline("Connected", `${center.name} accepted the call`, "active");
       speakMessage(activeTheme.connectedText);
-      updateModeMetrics({
+      updateDomainMetrics({
         attemptNumber: attempt.attempt,
         status: "connected",
         distanceKm: Number(attempt.distance_km || 0),
         strength,
+        domainProfile: scoredCenter?.domain_profile,
       });
       return;
     }
@@ -702,7 +771,7 @@ async function runFlow(data, location) {
 
   await sleep(STEP_DELAY_MS.long);
   setLoader(false, "Fallback workflow completed.");
-  updateModeMetrics({
+  updateDomainMetrics({
     attemptNumber: visualAttempts.length,
     status: "failed",
     distanceKm: 0,
@@ -849,3 +918,9 @@ initializeLocation();
 startLocationTracking();
 loadBootstrapData();
 setActiveMode(activeMode);
+updateDomainMetrics({
+  attemptNumber: 0,
+  status: "pending",
+  distanceKm: 3.5,
+  strength: 60,
+});

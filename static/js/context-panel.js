@@ -10,6 +10,7 @@
     home: "Overview",
     dashboard: "Dashboard",
     emergency: "Emergency",
+    ai_decision_engine_page: "AI Decision Engine",
     admin: "Admin Control",
     nearby_helpers: "Nearby Helpers",
     logs: "Logs",
@@ -157,6 +158,38 @@
     `;
   }
 
+  function renderAi(payload) {
+    const ranked = Array.isArray(payload.ranked_centers)
+      ? payload.ranked_centers
+      : Array.isArray(payload.rankedCenters)
+        ? payload.rankedCenters
+        : Array.isArray(payload.centers)
+          ? payload.centers
+          : [];
+    const selected = payload.selected_center || payload.selectedCenter || ranked[0] || null;
+    const confidence = Number(payload.confidence_score ?? payload.confidenceScore ?? selected?.ai_confidence ?? selected?.confidence_score ?? 0);
+    return `
+      ${renderHeader("AI routing snapshot", "Scoring centers by traffic, availability, and network reliability.")}
+      <div class="context-stat-grid">
+        ${statCard("🧠", "Selected Center", selected?.name || "Waiting", payload.explanation || "AI evaluates all available centers.", selected ? "good" : "warn")}
+        ${statCard("⭐", "Confidence", `${confidence.toFixed(1)}%`, selected ? "Confidence based on score spread" : "Run AI analysis to score centers.", selected ? "good" : "neutral")}
+        ${statCard("📍", "Evaluation Type", String(payload.emergencyType || "medical").toUpperCase(), payload.recalculatingMessage || "AI is recalculating...", "neutral")}
+      </div>
+      <div>
+        <div class="context-stat-head">
+          <span class="context-stat-label">Why this center</span>
+        </div>
+        <ul class="context-list">
+          ${selected?.ai_reasons ? selected.ai_reasons.map((reason) => listItem(reason, "Included in final score")).join("") : listItem("AI is recalculating...", "No ranked centers yet.")}
+        </ul>
+      </div>
+      <div class="context-panel-footer">
+        <span class="context-chip ${selected ? "good" : "warn"}">${selected ? "AI selected" : "Recalculating"}</span>
+        <span class="context-chip neutral">Dynamic routing</span>
+      </div>
+    `;
+  }
+
   function renderNearby(payload) {
     const responding = Number(payload.respondingCount || 0);
     const pending = Number(payload.pendingCount || 0);
@@ -239,6 +272,7 @@
       admin: renderAdmin(payload),
       nearby_helpers: renderNearby(payload),
       logs: renderLogs(payload),
+      ai_decision_engine_page: renderAi(payload),
       about: renderAbout(),
       home: renderHome(),
     }[state.page] || renderHome();

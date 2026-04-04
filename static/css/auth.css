@@ -47,6 +47,13 @@
   cursor: pointer;
 }
 
+.auth-btn-demo {
+  width: 100%;
+  margin: 1.1rem 0 0.2rem;
+  background: linear-gradient(120deg, #f9d423, #ff9a3d);
+  color: #2b1700;
+}
+
 .auth-tab.active {
   background: linear-gradient(120deg, #1f9eff, #4cc8ff);
   color: #0b1a2f;

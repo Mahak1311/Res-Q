@@ -5,7 +5,11 @@
     : window.performance.navigation && window.performance.navigation.type === 1;
 
   if (isReload && window.location.pathname !== "/") {
-    const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const blockedNextPaths = new Set(["/ai", "/ai-decision-engine"]);
+    const nextPath = blockedNextPaths.has(window.location.pathname)
+      ? "/home"
+      : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const next = nextPath || "/home";
     window.location.replace(`/?next=${encodeURIComponent(next)}`);
     return;
   }

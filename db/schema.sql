@@ -59,6 +59,26 @@ CREATE TABLE IF NOT EXISTS ui_actions (
     source TEXT
 );
 
+CREATE TABLE IF NOT EXISTS ai_decision_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    request_id TEXT,
+    source TEXT NOT NULL,
+    emergency_type TEXT NOT NULL,
+    user_lat REAL NOT NULL,
+    user_lng REAL NOT NULL,
+    selected_center_id TEXT,
+    selected_center_name TEXT,
+    selected_score REAL NOT NULL,
+    confidence REAL NOT NULL,
+    explanation TEXT NOT NULL,
+    ranked_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_decision_logs_created_at ON ai_decision_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_decision_logs_request_id ON ai_decision_logs(request_id);
+
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     full_name TEXT NOT NULL,

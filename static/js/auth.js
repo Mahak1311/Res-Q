@@ -6,6 +6,7 @@
 
   const nextPath = shell.getAttribute("data-next") || "/dashboard";
   const errorNode = document.getElementById("authError");
+  const demoLoginBtn = document.getElementById("demoLoginBtn");
 
   const showError = (message) => {
     if (!errorNode) return;
@@ -66,6 +67,19 @@
   wireForm("emailLoginForm", "/api/auth/login-email");
   wireForm("phoneSignupForm", "/api/auth/signup-phone");
   wireForm("phoneLoginForm", "/api/auth/login-phone");
+
+  if (demoLoginBtn) {
+    demoLoginBtn.addEventListener("click", async () => {
+      showError("");
+      demoLoginBtn.disabled = true;
+      try {
+        await sendAuthRequest("/api/auth/demo", {});
+      } catch (error) {
+        showError(error.message);
+        demoLoginBtn.disabled = false;
+      }
+    });
+  }
 
   window.handleGoogleCredentialResponse = async (response) => {
     showError("");

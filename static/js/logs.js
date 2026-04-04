@@ -3,6 +3,7 @@ const filterWrap = document.getElementById("logFilters");
 let activeFilter = "all";
 
 const statusChip = (status) => {
+  if (status === "ai") return '<span class="chip good">ai selected</span>';
   if (status === "nearby") return '<span class="chip warn">nearby</span>';
   if (status === "simulation") return '<span class="chip warn">simulation</span>';
   if (status === "connected") return '<span class="chip good">connected</span>';
@@ -24,21 +25,24 @@ function renderRows(rows) {
     const tr = document.createElement("tr");
     const isSimulation = item.kind === "simulation";
     const isNearby = item.kind === "nearby";
+    const isAi = item.kind === "ai";
     const msg = isSimulation
       ? item.summary || "Simulation event"
       : isNearby
         ? item.summary || "Nearby helper alert"
+        : isAi
+          ? item.summary || "AI decision"
       : item.details.messages[item.details.messages.length - 1] || "-";
     const requestId = item.request_id;
-    const source = isSimulation ? "admin" : isNearby ? "nearby-helpers" : item.source || "mobile";
-    const rerouted = isSimulation || isNearby ? "no" : item.rerouted ? "yes" : "no";
-    const signal = isSimulation || isNearby ? "--" : `${item.network_strength}%`;
-    const location = isSimulation ? (item.target || "global") : isNearby ? (item.target || "nearby") : `${item.user_lat}, ${item.user_lng}`;
+    const source = isSimulation ? "admin" : isNearby ? "nearby-helpers" : isAi ? "ai-engine" : item.source || "mobile";
+    const rerouted = isSimulation || isNearby || isAi ? "no" : item.rerouted ? "yes" : "no";
+    const signal = isSimulation || isNearby || isAi ? (isAi ? `${item.network_strength}%` : "--") : `${item.network_strength}%`;
+    const location = isSimulation ? (item.target || "global") : isNearby ? (item.target || "nearby") : isAi ? `${Number(item.user_lat).toFixed(3)}, ${Number(item.user_lng).toFixed(3)}` : `${item.user_lat}, ${item.user_lng}`;
     tr.innerHTML = `
       <td>${new Date(item.timestamp).toLocaleString()}</td>
       <td>${requestId}</td>
       <td>${source}</td>
-      <td>${statusChip(isSimulation ? "simulation" : isNearby ? "nearby" : item.final_status)}</td>
+      <td>${statusChip(isSimulation ? "simulation" : isNearby ? "nearby" : isAi ? "ai" : item.final_status)}</td>
       <td>${rerouted}</td>
       <td>${signal}</td>
       <td>${location}</td>

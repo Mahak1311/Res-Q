@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
     {% block head %}{% endblock %}
   </head>
-  <body data-page="{{ request.endpoint or 'home' }}" data-path="{{ request.path }}">
+  <body data-page="{{ request.endpoint or 'home' }}" data-path="{{ request.path }}" data-offline-mode="{{ 'true' if offline_mode else 'false' }}">
     <div class="bg-layer bg-layer-one"></div>
     <div class="bg-layer bg-layer-two"></div>
 
@@ -26,6 +26,7 @@
         {% if auth_user %}
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
         <a href="{{ url_for('emergency') }}">Emergency</a>
+        <a href="{{ url_for('ai_decision_engine_page') }}">AI Decision Engine</a>
         <a href="{{ url_for('admin') }}">Admin Control</a>
         <a href="{{ url_for('nearby_helpers') }}">Nearby Helpers</a>
         <a href="{{ url_for('logs') }}">Logs</a>

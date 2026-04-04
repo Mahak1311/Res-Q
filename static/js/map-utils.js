@@ -4,6 +4,10 @@
   const OSM_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const OSM_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 
+  function isOfflineMode() {
+    return document.body?.dataset?.offlineMode === "true";
+  }
+
   function createMap(elementId, options = {}) {
     const defaultCenter = [20.5937, 78.9629];
     const defaultZoom = 5;
@@ -13,11 +17,13 @@
       ...options.mapOptions,
     }).setView(options.center || defaultCenter, options.zoom || defaultZoom);
 
-    L.tileLayer(OSM_TILE_URL, {
-      maxZoom: 19,
-      subdomains: "abc",
-      attribution: OSM_ATTRIBUTION,
-    }).addTo(map);
+    if (!isOfflineMode()) {
+      L.tileLayer(OSM_TILE_URL, {
+        maxZoom: 19,
+        subdomains: "abc",
+        attribution: OSM_ATTRIBUTION,
+      }).addTo(map);
+    }
 
     return map;
   }
@@ -93,6 +99,10 @@
 
   async function fetchRoute(origin, destination) {
     if (!origin || !destination) {
+      return null;
+    }
+
+    if (isOfflineMode()) {
       return null;
     }
 
