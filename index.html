@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080b0f">
+  <meta name="description" content="Prince Darji — BCA developer, Craftathon winner, campus organizer, multi-sport athlete, trekking guide, and creator behind @unfilter_prince.">
+  <title>Prince Darji — Builder, Athlete &amp; Creator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { ink: "#080b0f", panel: "#10151b", mint: "#a7f3d0", acid: "#c5f467" },
+          fontFamily: { sans: ["DM Sans", "sans-serif"], display: ["Space Grotesk", "sans-serif"], mono: ["DM Mono", "monospace"] }
+        }
+      }
+    };
+  </script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080b0f;
+      --panel: #10151b;
+      --line: rgba(215, 230, 238, .105);
+      --muted: #929da6;
+      --mint: #a7f3d0;
+      --acid: #c5f467;
+      --mono: "DM Mono", monospace;
+      --display: "Space Grotesk", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 92px; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(ellipse at 86% 7%, rgba(80, 132, 117, .12), transparent 28rem),
+        radial-gradient(ellipse at 10% 40%, rgba(58, 91, 112, .09), transparent 35rem),
+        var(--bg);
+      color: #eef3f4;
+      font-family: "DM Sans", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");
+      content: "";
+      opacity: .13;
+      pointer-events: none;
+    }
+    a { color: inherit; text-decoration: none; }
+    button, input, textarea { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    ::selection { background: rgba(167, 243, 208, .28); color: #fff; }
+    .shell { width: min(1120px, calc(100% - 48px)); margin-inline: auto; }
+    .mono { font-family: var(--mono); letter-spacing: .075em; text-transform: uppercase; }
+    .display { font-family: var(--display); letter-spacing: -.055em; }
+    .muted { color: var(--muted); }
+    .mint { color: var(--mint); }
+    .eyebrow { color: var(--mint); font-size: 11px; }
+    .section { padding-block: 112px; }
+    .section-heading { max-width: 720px; margin-bottom: 48px; }
+    .section-heading h2 { margin: 15px 0 12px; font-size: clamp(36px, 5vw, 58px); line-height: 1.02; }
+    .section-heading p { max-width: 610px; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.8; }
+    .glass {
+      border: 1px solid var(--line);
+      background: linear-gradient(145deg, rgba(20, 27, 33, .88), rgba(13, 17, 22, .76));
+      box-shadow: 0 22px 65px rgba(0, 0, 0, .22), inset 0 1px rgba(255,255,255,.025);
+      backdrop-filter: blur(18px);
+    }
+    .topbar {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 20;
+      height: 72px;
+      border-bottom: 1px solid transparent;
+      transition: background .25s, border-color .25s;
+    }
+    .topbar.scrolled { border-color: var(--line); background: rgba(8, 11, 15, .84); backdrop-filter: blur(18px); }
+    .nav-inner { display: flex; height: 100%; align-items: center; justify-content: space-between; }
+    .brand { display: flex; align-items: center; gap: 11px; font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: -.03em; }
+    .brand-mark { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid rgba(167,243,208,.42); border-radius: 10px; color: var(--mint); font-size: 13px; }
+    .nav-links { display: flex; align-items: center; gap: 18px; color: #abb4ba; font-size: 10px; }
+    .nav-links a { transition: color .2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--mint); }
+    .nav-cta { padding: 10px 15px; border: 1px solid rgba(167,243,208,.36); border-radius: 7px; color: var(--mint) !important; }
+    .menu-toggle { display: none; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.03); color: #fff; cursor: pointer; }
+
+    .hero { display: grid; min-height: 760px; padding-top: 136px; padding-bottom: 82px; grid-template-columns: 1.08fr .92fr; align-items: center; gap: 42px; }
+    .hero-copy { position: relative; z-index: 1; }
+    .availability { display: inline-flex; align-items: center; gap: 10px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.025); color: #b7c1c6; font-size: 11px; }
+    .availability-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 14px rgba(197,244,103,.8); animation: pulse 2s infinite; }
+    .hero h1 { max-width: 700px; margin: 25px 0 22px; font-size: clamp(54px, 7.5vw, 90px); line-height: .96; }
+    .hero h1 .line-two { display: block; color: #84919a; }
+    .hero h1 .name { color: var(--mint); }
+    .typed-line { min-height: 29px; margin-bottom: 20px; color: #d7e2e1; font-family: var(--mono); font-size: 13px; }
+    .typed-line .cursor { display: inline-block; width: 7px; height: 15px; margin-left: 4px; background: var(--mint); vertical-align: -3px; animation: blink .85s step-end infinite; }
+    .hero-description { max-width: 505px; margin: 0; color: #9da8af; font-size: 15px; line-height: 1.85; }
+    .hero-description strong { color: #e8efeb; font-weight: 600; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .button { display: inline-flex; min-height: 46px; align-items: center; justify-content: center; gap: 10px; padding: 0 17px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255,255,255,.035); color: #e9f0ef; font-size: 12px; font-weight: 600; transition: transform .2s, border-color .2s, background .2s; }
+    .button:hover { transform: translateY(-2px); border-color: rgba(167,243,208,.5); background: rgba(167,243,208,.06); }
+    .button-primary { border-color: var(--mint); background: var(--mint); color: #0b1713; }
+    .button-primary:hover { border-color: #caffdf; background: #caffdf; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 39px; color: #849099; font-size: 11px; }
+    .hero-meta span { display: inline-flex; align-items: center; gap: 7px; }
+    .hero-meta svg { color: var(--mint); }
+    .hero-art { position: relative; display: grid; min-height: 480px; place-items: center; }
+    .orbit { position: absolute; width: min(88%, 465px); aspect-ratio: 1; border: 1px solid rgba(167,243,208,.09); border-radius: 50%; transform: rotate(-24deg) scaleY(.66); }
+    .orbit::before, .orbit::after { position: absolute; content: ""; border: 1px solid rgba(167,243,208,.08); border-radius: 50%; }
+    .orbit::before { inset: 10%; }
+    .orbit::after { inset: 22%; }
+    .orbit-dot { position: absolute; top: 16%; right: 12%; width: 9px; height: 9px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 20px var(--acid); }
+    .profile-card { position: relative; width: min(100%, 350px); min-height: 430px; overflow: hidden; border-radius: 17px; transform: rotate(2deg); transition: transform .4s; }
+    .profile-card:hover { transform: rotate(0) translateY(-5px); }
+    .portrait-photo { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 54%; opacity: 0; transition: opacity .9s ease; }
+    .portrait-photo.is-active { opacity: 1; }
+    .photo-shade { position: absolute; z-index: 1; inset: 0; background: linear-gradient(180deg, rgba(7,11,13,.44), transparent 30%, transparent 52%, rgba(7,11,13,.84)); }
+    .card-glow { position: absolute; top: -40%; right: -25%; width: 340px; height: 340px; border-radius: 50%; background: radial-gradient(circle, rgba(151,235,197,.13), transparent 69%); pointer-events: none; }
+    .card-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(167,243,208,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(167,243,208,.035) 1px, transparent 1px); background-size: 31px 31px; mask-image: linear-gradient(to bottom, black, transparent 90%); pointer-events: none; }
+    .card-content { position: relative; z-index: 2; display: flex; min-height: 430px; flex-direction: column; justify-content: space-between; padding: 20px; }
+    .card-top { display: flex; align-items: center; justify-content: space-between; color: #edf4f0; font-size: 10px; text-shadow: 0 1px 12px rgba(0,0,0,.7); }
+    .card-top .mono { font-size: 9px; }
+    .card-bottom { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+    .card-bottom strong { display: block; font-family: var(--display); font-size: 23px; letter-spacing: -.04em; text-shadow: 0 2px 14px rgba(0,0,0,.55); }
+    .card-bottom small { display: block; margin-top: 5px; color: #d3ded9; font-size: 10px; text-shadow: 0 1px 10px rgba(0,0,0,.65); }
+    .card-index { color: var(--mint); font-family: var(--mono); font-size: 9px; text-align: right; text-shadow: 0 1px 10px rgba(0,0,0,.75); }
+    .floating-tag { position: absolute; display: flex; align-items: center; gap: 8px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(17,23,28,.9); box-shadow: 0 12px 30px rgba(0,0,0,.24); color: #dce5e3; font-size: 10px; backdrop-filter: blur(14px); animation: float 5s ease-in-out infinite; }
+    .floating-tag svg { color: var(--mint); }
+    .tag-winner { top: 16%; left: -1%; }
+    .tag-runner { right: -2%; bottom: 17%; animation-delay: -2.5s; }
+
+    .ticker-wrap { overflow: hidden; border-block: 1px solid var(--line); background: rgba(255,255,255,.015); }
+    .ticker { display: flex; width: max-content; align-items: center; gap: 34px; padding-block: 18px; animation: ticker 34s linear infinite; }
+    .ticker span { color: #82908f; font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+    .ticker i { color: var(--mint); font-style: normal; font-size: 12px; }
+    .ticker-wrap:hover .ticker { animation-play-state: paused; }
+
+    .about-grid { display: grid; grid-template-columns: .8fr 1.2fr; gap: 55px; align-items: start; }
+    .about-aside { position: sticky; top: 110px; }
+    .about-aside h2 { margin: 15px 0 17px; font-size: clamp(37px, 5vw, 54px); line-height: 1.02; }
+    .about-aside p { color: var(--muted); font-size: 14px; line-height: 1.8; }
+    .about-copy { padding-top: 3px; }
+    .about-copy > p { margin: 0 0 18px; color: #aab4ba; font-size: 15px; line-height: 1.9; }
+    .about-copy strong { color: #eef4f1; font-weight: 600; }
+    .about-stat-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; margin-top: 30px; }
+    .stat-card { min-height: 105px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.02); }
+    .stat-card strong { display: block; color: var(--mint); font-family: var(--display); font-size: 27px; letter-spacing: -.06em; }
+    .stat-card span { display: block; margin-top: 5px; color: #89949a; font-size: 10px; line-height: 1.5; }
+    .sport-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+    .sport-pills span, .stack span { padding: 7px 10px; border: 1px solid var(--line); border-radius: 5px; color: #aeb8bc; font-family: var(--mono); font-size: 9px; }
+
+    .work-section { border-block: 1px solid rgba(255,255,255,.035); background: linear-gradient(180deg, rgba(255,255,255,.012), transparent 20%, transparent 80%, rgba(255,255,255,.012)); }
+    .project-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; }
+    .project-card { position: relative; display: flex; min-height: 405px; flex-direction: column; overflow: hidden; padding: 24px; border-radius: 13px; transition: transform .25s, border-color .25s; }
+    .project-card:hover { transform: translateY(-5px); border-color: rgba(167,243,208,.3); }
+    .project-card::after { position: absolute; top: -100px; right: -80px; width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(circle, rgba(167,243,208,.1), transparent 70%); content: ""; pointer-events: none; }
+    .project-card.resq::after { background: radial-gradient(circle, rgba(150,133,255,.13), transparent 70%); }
+    .project-top { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; }
+    .project-number { color: #75828a; font-family: var(--mono); font-size: 10px; }
+    .project-badge { padding: 7px 9px; border: 1px solid rgba(197,244,103,.2); border-radius: 5px; color: var(--acid); font-family: var(--mono); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+    .project-icon { display: grid; width: 48px; height: 48px; margin-top: 26px; place-items: center; border: 1px solid rgba(167,243,208,.19); border-radius: 12px; background: rgba(167,243,208,.05); color: var(--mint); }
+    .resq .project-icon { border-color: rgba(186,170,255,.23); background: rgba(156,138,255,.07); color: #c7b9ff; }
+    .project-card h3 { position: relative; z-index: 1; margin: 18px 0 5px; font-family: var(--display); font-size: 27px; letter-spacing: -.05em; }
+    .project-subtitle { color: #82908f; font-size: 11px; }
+    .project-description { max-width: 465px; margin: 19px 0; color: #a3aeb2; font-size: 13px; line-height: 1.8; }
+    .project-details { margin-top: auto; }
+    .project-details summary { display: flex; width: fit-content; align-items: center; gap: 9px; color: var(--mint); font-size: 11px; font-weight: 600; cursor: pointer; list-style: none; }
+    .project-details summary::-webkit-details-marker { display: none; }
+    .project-details summary::after { content: "+"; font-family: var(--mono); font-size: 15px; transition: transform .2s; }
+    .project-details[open] summary::after { transform: rotate(45deg); }
+    .details-copy { padding-top: 15px; color: #9ca9ad; font-size: 12px; line-height: 1.8; }
+    .details-copy p { margin: 0 0 12px; }
+    .stack { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 17px; }
+    .project-link { display: inline-flex; align-items: center; gap: 7px; margin-top: 17px; color: #d9e3e1; font-size: 11px; }
+    .project-link:hover { color: var(--mint); }
+    .project-link svg { color: var(--mint); }
+    .link-note { margin: 6px 0 0; color: #78868c; font-size: 10px; }
+    .hackathon-feature { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 24px; align-items: center; overflow: hidden; margin-top: 17px; padding: 20px; border-radius: 12px; }
+    .hackathon-feature h3 { margin: 10px 0 7px; font-family: var(--display); font-size: 21px; letter-spacing: -.04em; }
+    .hackathon-feature p { margin: 0; color: #9ca8ad; font-size: 12px; line-height: 1.8; }
+    .hackathon-feature img { width: 100%; height: 190px; border: 1px solid var(--line); border-radius: 8px; object-fit: cover; object-position: center 43%; }
+
+    .impact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .impact-card { position: relative; overflow: hidden; padding: 25px; border-radius: 12px; }
+    .impact-card.wide { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 35px; }
+    .impact-card h3 { margin: 14px 0 10px; font-family: var(--display); font-size: 22px; letter-spacing: -.04em; }
+    .impact-card p { margin: 0; color: #9ca8ad; font-size: 12px; line-height: 1.8; }
+    .impact-label { color: var(--mint); font-size: 9px; }
+    .impact-metric { color: var(--mint); font-family: var(--display); font-size: clamp(39px, 6vw, 57px); font-weight: 600; letter-spacing: -.08em; white-space: nowrap; }
+    .impact-metric span { color: #86928e; font-family: var(--mono); font-size: 11px; font-weight: 400; letter-spacing: 0; }
+    .impact-card.wide h3 { font-size: 25px; }
+    .sports-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 18px; }
+    .sports-list span { padding: 7px 9px; border-radius: 4px; background: rgba(255,255,255,.045); color: #c1ccca; font-family: var(--mono); font-size: 9px; }
+    .sports-highlight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; margin-top: 16px; }
+    .sports-highlight { min-height: 205px; padding: 23px; border-radius: 12px; }
+    .sports-highlight h3 { margin: 13px 0 8px; font-family: var(--display); font-size: 20px; letter-spacing: -.04em; }
+    .sports-highlight p { margin: 0; color: #9ca8ad; font-size: 12px; line-height: 1.8; }
+    .sports-highlight .sports-list { margin-top: 14px; }
+    .sports-highlight-feature { display: grid; grid-template-columns: 1fr .95fr; align-items: center; gap: 20px; }
+    .sports-highlight-feature .sports-photo { min-height: 230px; }
+    .sports-highlight-feature .sports-photo img { height: 230px; min-height: 0; max-height: none; }
+    .adventure-feature .sports-photo img { object-position: center 38%; }
+    .sports-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+    .sports-photo { position: relative; min-height: 190px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+    .sports-photo img { display: block; width: 100%; height: 190px; min-height: 190px; max-height: 190px; object-fit: cover; transition: transform .5s ease; }
+    .sports-photo:hover img { transform: scale(1.035); }
+    .sports-photo figcaption { position: absolute; inset: auto 0 0; padding: 38px 13px 12px; background: linear-gradient(transparent, rgba(5,9,10,.88)); }
+    .sports-photo figcaption span { display: block; margin-bottom: 6px; color: var(--mint); font-size: 9px; }
+    .sports-photo figcaption strong { color: #f0f5f2; font-family: var(--display); font-size: 13px; font-weight: 500; letter-spacing: -.025em; }
+    .sports-gallery-heading { margin: 30px 0 0; }
+    .sports-gallery-heading h3 { margin: 0 0 7px; font-family: var(--display); font-size: 21px; letter-spacing: -.04em; }
+    .sports-gallery-heading p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .creator-section { overflow: hidden; }
+    .creator-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+    .creator-handle { display: inline-flex; align-items: center; gap: 9px; padding: 10px 13px; border: 1px solid rgba(167,243,208,.24); border-radius: 7px; color: var(--mint); font-family: var(--mono); font-size: 10px; white-space: nowrap; }
+    .reels-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .reel-card { position: relative; display: flex; min-height: 295px; flex-direction: column; justify-content: space-between; overflow: hidden; padding: 17px; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(155deg, rgba(32,44,51,.9), rgba(11,15,20,.96)); transition: transform .25s, border-color .25s; }
+    .reel-card:nth-child(2) { background: linear-gradient(155deg, rgba(57,38,61,.9), rgba(12,14,20,.96)); }
+    .reel-card:nth-child(3) { background: linear-gradient(155deg, rgba(37,54,46,.9), rgba(11,15,20,.96)); }
+    .reel-card:nth-child(4) { background: linear-gradient(155deg, rgba(50,45,34,.9), rgba(11,15,20,.96)); }
+    .reel-card.featured-reel-one { background-image: linear-gradient(180deg, rgba(5,9,10,.18), rgba(5,9,10,.12) 48%, rgba(5,9,10,.88)), url("assets/images/reel-01-cover.png"); background-position: center; background-size: cover; }
+    .reel-card.featured-reel-one::before, .reel-card.featured-reel-one::after { display: none; }
+    .reel-card.featured-reel-two { background-image: linear-gradient(180deg, rgba(5,9,10,.18), rgba(5,9,10,.12) 48%, rgba(5,9,10,.88)), url("assets/images/reel-02-cover.png"); background-position: center; background-size: cover; }
+    .reel-card.featured-reel-two::before, .reel-card.featured-reel-two::after { display: none; }
+    .reel-card.featured-post { background-image: linear-gradient(180deg, rgba(5,9,10,.12), rgba(5,9,10,.1) 48%, rgba(5,9,10,.88)), url("assets/images/featured-post-cover.jpg"); background-position: center 43%; background-size: cover; }
+    .reel-card.featured-post::before, .reel-card.featured-post::after { display: none; }
+    .reel-card::before, .reel-card::after { position: absolute; z-index: 0; border: 1px solid rgba(255,255,255,.09); border-radius: 50%; content: ""; pointer-events: none; }
+    .reel-card::before { top: 21%; left: 50%; width: 180px; height: 180px; transform: translateX(-50%); }
+    .reel-card::after { top: calc(21% + 15px); left: 50%; width: 150px; height: 150px; border-color: rgba(167,243,208,.18); transform: translateX(-50%); }
+    .reel-card:hover { transform: translateY(-4px); border-color: rgba(167,243,208,.32); }
+    .reel-card > * { position: relative; z-index: 1; }
+    .reel-top { display: flex; justify-content: space-between; color: #b6c1c3; font-family: var(--mono); font-size: 9px; }
+    .reel-play { position: absolute !important; top: 50%; left: 50%; display: grid; width: 48px; height: 48px; place-items: center; border: 1px solid rgba(167,243,208,.38); border-radius: 50%; background: rgba(8,11,15,.55); color: var(--mint); transform: translate(-50%, -50%); backdrop-filter: blur(8px); transition: background .2s, transform .2s; }
+    .reel-card:hover .reel-play { background: rgba(167,243,208,.14); transform: translate(-50%, -50%) scale(1.08); }
+    .reel-card h3 { margin: 0 0 6px; font-family: var(--display); font-size: 16px; letter-spacing: -.025em; }
+    .reel-card small { color: #9ca8ad; font-size: 10px; }
+    .creator-note { margin: 17px 0 0; color: #7f8c92; font-size: 10px; line-height: 1.7; }
+    .timeline { position: relative; display: grid; gap: 12px; }
+    .timeline::before { position: absolute; top: 18px; bottom: 18px; left: 18px; width: 1px; background: linear-gradient(var(--mint), rgba(167,243,208,.05)); content: ""; }
+    .timeline-item { position: relative; display: grid; grid-template-columns: 38px 1fr auto; gap: 17px; align-items: start; padding: 20px; border-radius: 11px; }
+    .timeline-icon { position: relative; z-index: 1; display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid rgba(167,243,208,.2); border-radius: 10px; background: #11181b; color: var(--mint); }
+    .timeline-item h3 { margin: 1px 0 5px; font-family: var(--display); font-size: 16px; letter-spacing: -.025em; }
+    .timeline-item p { max-width: 640px; margin: 0; color: #9ba7ac; font-size: 12px; line-height: 1.75; }
+    .timeline-org { color: #7f8e93; font-family: var(--mono); font-size: 9px; text-align: right; white-space: nowrap; }
+    .timeline-org span { display: block; margin-top: 6px; color: var(--mint); }
+    .event-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 28px; }
+    .event-photo { position: relative; min-height: 260px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(145deg, rgba(20,27,33,.88), rgba(13,17,22,.76)); }
+    .event-photo img { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; object-fit: cover; }
+    .event-photo figcaption { position: absolute; z-index: 2; inset: auto 0 0; padding: 45px 16px 15px; background: linear-gradient(transparent, rgba(5,9,10,.92)); pointer-events: none; }
+    .event-photo figcaption span { display: block; margin-bottom: 5px; color: var(--mint); font-family: var(--mono); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .event-photo figcaption strong { font-family: var(--display); font-size: 14px; font-weight: 500; }
+    .event-placeholder { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: 12px; padding: 20px; color: #839098; text-align: center; }
+    .event-placeholder svg { color: var(--mint); }
+    .event-placeholder span { max-width: 210px; font-family: var(--mono); font-size: 9px; line-height: 1.7; }
+    .event-photo:has(img:not([hidden])) .event-placeholder { display: none; }
+
+    .contact-section { padding-top: 52px; }
+    .contact-panel { position: relative; display: grid; grid-template-columns: .9fr 1.1fr; gap: 55px; overflow: hidden; padding: clamp(25px, 5vw, 55px); border-radius: 16px; }
+    .contact-panel::after { position: absolute; top: -210px; left: 13%; width: 380px; height: 380px; border-radius: 50%; background: radial-gradient(circle, rgba(167,243,208,.11), transparent 70%); content: ""; pointer-events: none; }
+    .contact-copy, .contact-form { position: relative; z-index: 1; }
+    .contact-copy h2 { margin: 14px 0; font-size: clamp(38px, 5vw, 57px); line-height: 1.02; }
+    .contact-copy > p { max-width: 370px; color: #9da8ae; font-size: 13px; line-height: 1.8; }
+    .social-links { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 25px; }
+    .social-links a { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; color: #c6d0d1; font-size: 10px; transition: border-color .2s, color .2s; }
+    .social-links a:hover { border-color: rgba(167,243,208,.4); color: var(--mint); }
+    .social-links svg { width: 14px; height: 14px; }
+    .contact-form { display: grid; gap: 12px; }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .contact-form label { display: grid; gap: 7px; color: #aab5b8; font-family: var(--mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+    .contact-form input, .contact-form textarea { width: 100%; border: 1px solid var(--line); border-radius: 7px; outline: none; background: rgba(3,7,9,.35); color: #eef4f2; font-family: "DM Sans", sans-serif; font-size: 12px; letter-spacing: 0; text-transform: none; transition: border-color .2s, box-shadow .2s; }
+    .contact-form input { height: 43px; padding: 0 12px; }
+    .contact-form textarea { min-height: 114px; padding: 12px; resize: vertical; }
+    .contact-form input:focus, .contact-form textarea:focus { border-color: rgba(167,243,208,.55); box-shadow: 0 0 0 3px rgba(167,243,208,.07); }
+    .contact-form input::placeholder, .contact-form textarea::placeholder { color: #66737a; }
+    .contact-submit { justify-self: start; margin-top: 1px; cursor: pointer; }
+    .form-status { min-height: 18px; margin: 0; color: var(--mint); font-size: 11px; line-height: 1.6; }
+    .form-status.error { color: #ffb3a8; }
+    footer { padding: 27px 0 33px; }
+    .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 15px; border-top: 1px solid var(--line); padding-top: 22px; color: #77848b; font-size: 10px; }
+    .footer-inner a { color: #b8c5c6; }
+    .footer-inner a:hover { color: var(--mint); }
+    .back-top { display: inline-flex; align-items: center; gap: 7px; }
+    .reveal { opacity: 0; transform: translateY(20px); transition: opacity .65s ease, transform .65s cubic-bezier(.2,.7,.2,1); }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+    .scroll-progress { position: fixed; top: 0; left: 0; z-index: 30; width: 0; height: 2px; background: linear-gradient(90deg, var(--mint), var(--acid)); }
+
+    @keyframes pulse { 50% { opacity: .42; box-shadow: 0 0 5px rgba(197,244,103,.4); } }
+    @keyframes blink { 50% { opacity: 0; } }
+    @keyframes rotate { to { transform: rotate(360deg); } }
+    @keyframes float { 50% { transform: translateY(-8px); } }
+    @keyframes ticker { to { transform: translateX(-50%); } }
+
+    @media (max-width: 800px) {
+      .menu-toggle { display: grid; place-items: center; }
+      .nav-links { position: absolute; top: 71px; right: 24px; left: 24px; display: none; align-items: stretch; gap: 0; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: rgba(12,16,20,.97); box-shadow: 0 20px 50px rgba(0,0,0,.45); }
+      .nav-links.open { display: flex; flex-direction: column; }
+      .nav-links a { padding: 12px 11px; }
+      .nav-links .nav-cta { margin-top: 5px; text-align: center; }
+      .hero { min-height: auto; grid-template-columns: 1fr; gap: 25px; padding-top: 142px; }
+      .hero-art { min-height: 430px; }
+      .profile-card { width: min(100%, 330px); }
+      .about-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .about-grid { grid-template-columns: 1fr; gap: 25px; }
+      .about-aside { position: static; }
+      .about-aside h2 { max-width: 570px; }
+      .contact-panel { grid-template-columns: 1fr; gap: 28px; }
+      .reels-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .event-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .section { padding-block: 83px; }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 36px, 520px); }
+      .topbar { height: 64px; }
+      .menu-toggle { display: grid; place-items: center; }
+      .nav-links { position: absolute; top: 63px; right: 18px; left: 18px; display: none; align-items: stretch; gap: 0; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: rgba(12,16,20,.97); box-shadow: 0 20px 50px rgba(0,0,0,.45); }
+      .nav-links.open { display: flex; flex-direction: column; }
+      .nav-links a { padding: 12px 11px; }
+      .nav-links .nav-cta { margin-top: 5px; text-align: center; }
+      .hero { padding-top: 116px; padding-bottom: 57px; }
+      .hero h1 { font-size: clamp(51px, 15vw, 74px); }
+      .hero-description { font-size: 14px; }
+      .hero-art { min-height: 390px; }
+      .profile-card, .card-content { min-height: 400px; }
+      .profile-card { width: min(100%, 305px); }
+      .tag-winner { left: -3px; }
+      .tag-runner { right: -3px; }
+      .section { padding-block: 70px; }
+      .section-heading { margin-bottom: 30px; }
+      .project-grid, .impact-grid { grid-template-columns: 1fr; }
+      .hackathon-feature { grid-template-columns: 1fr; gap: 14px; padding: 17px; }
+      .hackathon-feature img { height: 230px; }
+      .sports-highlight-grid { grid-template-columns: 1fr; gap: 12px; }
+      .sports-highlight-feature { grid-template-columns: 1fr; gap: 16px; }
+      .event-gallery { grid-template-columns: 1fr; }
+      .sports-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 18px; }
+      .sports-photo { min-height: 155px; }
+      .sports-photo img { height: 155px; min-height: 155px; max-height: 155px; }
+      .sports-photo figcaption { padding: 32px 10px 10px; }
+      .sports-photo figcaption strong { font-size: 11px; }
+      .creator-heading { align-items: flex-start; flex-direction: column; }
+      .reels-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
+      .reel-card { min-height: 235px; padding: 13px; }
+      .project-card { min-height: 390px; padding: 21px; }
+      .impact-card.wide { grid-column: auto; grid-template-columns: 1fr; gap: 15px; }
+      .impact-metric { font-size: 43px; }
+      .timeline-item { grid-template-columns: 36px 1fr; gap: 13px; padding: 16px; }
+      .timeline-org { grid-column: 2; display: flex; gap: 7px; text-align: left; }
+      .timeline-org span { display: inline; margin: 0; }
+      .about-stat-row { gap: 7px; }
+      .stat-card { min-height: 96px; padding: 12px 10px; }
+      .stat-card strong { font-size: 23px; }
+      .stat-card span { font-size: 9px; }
+      .contact-panel { padding: 24px 18px; }
+      .field-row { grid-template-columns: 1fr; }
+      .footer-inner { align-items: flex-start; flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+      .reveal { opacity: 1; transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="scroll-progress" aria-hidden="true"></div>
+  <header class="topbar" id="top">
+    <nav class="shell nav-inner" aria-label="Main navigation">
+      <a class="brand" href="#top" aria-label="Prince Darji home">
+        <span class="brand-mark">PD</span><span>prince<span class="mint">.</span>darji</span>
+      </a>
+      <button class="menu-toggle" type="button" aria-label="Open navigation menu" aria-expanded="false" aria-controls="primary-nav">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="nav-links" id="primary-nav">
+        <a href="#home">Home</a>
+        <a href="#about">About</a>
+        <a href="#work">Hackathons &amp; Projects</a>
+        <a href="#experience">Leadership &amp; Judging</a>
+        <a href="#impact">Sports &amp; Athletics</a>
+        <a href="#creator">Content Creation</a>
+        <a class="nav-cta" href="#contact">Let’s talk <span aria-hidden="true">↗</span></a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="shell hero" id="home" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="availability mono"><span class="availability-dot"></span>Building with purpose · SSIT, India</div>
+        <h1 class="display" id="hero-title">Prince <span class="name">Darji</span><span class="line-two">builds beyond</span></h1>
+        <div class="typed-line" aria-label="Developer, event host, athlete, trekking guide, content creator"><span id="typed-text"></span><span class="cursor" aria-hidden="true"></span></div>
+        <p class="hero-description"><strong>Developer on the screen, athlete &amp; host on the field/stage, creator behind the lens.</strong> I’m a BCA student at SSIT (GTU), building useful software, hosting campus events, competing with my team, and creating visual stories.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#work">Explore my work <span aria-hidden="true">↘</span></a>
+          <a class="button" href="#impact">View sports &amp; content <span aria-hidden="true">↘</span></a>
+          <a class="button" href="#contact">Get in touch <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="hero-meta">
+          <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 21s7-4.4 7-11a7 7 0 1 0-14 0c0 6.6 7 11 7 11Z"/><circle cx="12" cy="10" r="2.2"/></svg>SSIT · GTU</span>
+          <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg>Code × Community × Sport × Story</span>
+        </div>
+      </div>
+      <div class="hero-art" aria-label="Portfolio profile illustration">
+        <div class="orbit"><span class="orbit-dot"></span></div>
+        <div class="profile-card glass">
+          <img class="portrait-photo is-active" src="assets/images/prince-darji-hero.jpg" alt="Prince Darji outdoors at sunset, looking toward the evening sky" fetchpriority="high">
+          <img class="portrait-photo" src="assets/images/prince-darji-hero-seated.jpg" alt="Prince Darji seated in sunlight, looking to the side" aria-hidden="true" decoding="async">
+          <img class="portrait-photo" src="assets/images/prince-darji-hero-event.jpg" alt="Prince Darji at SSIT holding a Rising Star event frame" aria-hidden="true" decoding="async">
+          <div class="photo-shade" aria-hidden="true"></div>
+          <div class="card-glow"></div><div class="card-grid"></div>
+          <div class="card-content">
+            <div class="card-top"><span class="mono">Personal portfolio / 01</span><span>✳ &nbsp; 2026</span></div>
+            <div class="card-bottom"><div><strong>Prince Darji</strong><small>Creator · Developer · Athlete · Trekker</small></div><span class="card-index">BUILDS<br>WITH PURPOSE</span></div>
+          </div>
+        </div>
+        <div class="floating-tag tag-winner"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 21h8m-4-4v4M7 4h10v5a5 5 0 0 1-10 0V4ZM7 6H4v2a4 4 0 0 0 4 4m9-6h3v2a4 4 0 0 1-4 4"/></svg>Craftathon ’26 · 1st place</div>
+        <div class="floating-tag tag-runner"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="15" cy="5" r="2"/><path d="m8 13 4-4 3 2 3 1M5 19l4-6-3-2-3 3m9-5-1 5 4 2 2 4"/></svg>100m · Badminton · Kabaddi</div>
+      </div>
+    </section>
+
+    <div class="ticker-wrap" aria-label="Areas of focus">
+      <div class="ticker">
+        <span>Thoughtful software</span><i>✳</i><span>Hackathon energy</span><i>✳</i><span>Built for real people</span><i>✳</i><span>100m mindset</span><i>✳</i><span>Peak Hikers spirit</span><i>✳</i><span>Stories behind the lens</span><i>✳</i><span>Thoughtful software</span><i>✳</i><span>Hackathon energy</span><i>✳</i><span>Built for real people</span><i>✳</i><span>100m mindset</span><i>✳</i><span>Peak Hikers spirit</span><i>✳</i><span>Stories behind the lens</span><i>✳</i>
+      </div>
+    </div>
+
+    <section class="shell section" id="about">
+      <div class="about-grid">
+        <div class="about-aside reveal">
+          <span class="eyebrow mono">01 / A little about me</span>
+          <h2 class="display">Different arenas.<br><span class="mint">Same drive.</span></h2>
+          <p>Curious by default. Competitive by choice. At home in a code editor, on stage, or at the starting line.</p>
+        </div>
+        <div class="about-copy reveal">
+          <p>I’m <strong>Prince Darji</strong>, a Bachelor of Computer Applications student at <strong>Shree Swaminarayan Institute of Technology (SSIT)</strong>, affiliated with <strong>Gujarat Technological University (GTU)</strong>.</p>
+          <p>My world connects software, leadership, sport, the outdoors, and creative media. I build practical products, help bring campus tech events to life, compete across the track and court, guide trekking groups, and create visual stories as <strong>@unfilter_prince</strong>.</p>
+          <p>Each arena makes me better in the others: <strong>teamwork from sport, composure from competition, care and awareness from guiding, and perspective from community.</strong> Whether I’m building a smarter dispatch flow, welcoming a first-time hackathon participant, or leading a group outdoors, I bring the same focus: show up prepared, look out for the team, and keep moving forward.</p>
+          <div class="about-stat-row">
+            <div class="stat-card"><strong>BCA</strong><span>Bachelor of Computer Applications</span></div>
+            <div class="stat-card"><strong>SSIT</strong><span>Shree Swaminarayan Institute of Technology</span></div>
+            <div class="stat-card"><strong>GTU</strong><span>Gujarat Technological University</span></div>
+            <div class="stat-card"><strong>5<span style="font-size:.55em">×</span></strong><span>Ideas across code, sport, outdoors, leadership &amp; media</span></div>
+          </div>
+          <div class="sport-pills" aria-label="Sports and outdoor experience"><span>100m sprint</span><span>Inter-zonal badminton</span><span>Kabaddi</span><span>Volleyball</span><span>Trekking guide</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="work-section" id="work">
+      <div class="shell section">
+        <div class="section-heading reveal">
+          <span class="eyebrow mono">02 / Hackathons &amp; projects</span>
+          <h2 class="display">Real problems.<br><span class="mint">Practical builds.</span></h2>
+          <p>Products shaped around what people actually need: clearer decisions, better coordination, and systems that work under pressure.</p>
+        </div>
+        <div class="project-grid">
+          <article class="project-card glass reveal">
+            <div class="project-top"><span class="project-number">PROJECT / 01</span><span class="project-badge">Award-winning · SafetyTech</span></div>
+            <div class="project-icon" aria-hidden="true"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="M12 8v5m0 3h.01"/></svg></div>
+            <h3>ResQ</h3>
+            <div class="project-subtitle">The Alcheminds · Intelligent emergency response</div>
+            <p class="project-description">An emergency response and call-rerouting system designed to help urgent requests reach the right response path, when every second matters.</p>
+            <div class="project-details">
+              <details>
+                <summary>What makes it different</summary>
+                <div class="details-copy"><p>ResQ focuses on intelligent emergency handling and call rerouting. The project earned <strong>1st place in the SafetyTech domain at Craftathon 2026, Gandhinagar University (April 3–4, 2026).</strong></p><div class="stack"><span>Python</span><span>Flask</span><span>HTML / CSS / JS</span></div></div>
+              </details>
+              <a class="project-link" href="https://github.com/Mahak1311/Res-Q" target="_blank" rel="noreferrer">View ResQ on GitHub <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+            </div>
+          </article>
+          <article class="project-card glass reveal">
+            <div class="project-top"><span class="project-number">PROJECT / 02</span><span class="project-badge">Product · SaaS</span></div>
+            <div class="project-icon" aria-hidden="true"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18l-1.6 10H4.6L3 7Z"/><path d="M3 7 5 4h14l2 3M8 11v3m4-3v3m4-3v3"/></svg></div>
+            <h3>FleetFlow</h3>
+            <div class="project-subtitle">The Alcheminds · Fleet &amp; logistics management</div>
+            <p class="project-description">A rule-driven fleet management platform that gives each team member a useful, role-specific workspace—from dispatch through finance and safety.</p>
+            <div class="project-details">
+              <details>
+                <summary>Explore the product</summary>
+                <div class="details-copy"><p>Dynamic role-based UI for <strong>Dispatcher, Fleet Manager, Finance Analyst, and Safety Officer</strong>, paired with smart dispatch validation and maintenance automation.</p><div class="stack"><span>4 role-based views</span><span>Smart dispatch</span><span>Maintenance automation</span></div></div>
+              </details>
+              <a class="project-link" href="https://github.com/Prince-1409?tab=repositories" target="_blank" rel="noreferrer">Find FleetFlow on GitHub <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+              <p class="link-note">Opens the project owner’s repositories; link to the exact FleetFlow repo when available.</p>
+            </div>
+          </article>
+        </div>
+        <article class="hackathon-feature glass reveal">
+          <div>
+            <span class="impact-label mono">Craftathon 2026 · SafetyTech winner</span>
+            <h3>ResQ · 1st place</h3>
+            <p>ResQ by The Alcheminds won first place in the SafetyTech domain at Gandhinagar University on April 3–4, 2026.</p>
+            <div class="sports-list"><span>Emergency response</span><span>Call rerouting</span><span>April 3–4, 2026</span></div>
+          </div>
+          <img src="assets/images/prince-craftathon-display.jpg" alt="Prince at the Craftathon event display in front of a framed event backdrop" loading="lazy">
+        </article>
+      </div>
+    </section>
+
+    <section class="shell section" id="experience">
+      <div class="section-heading reveal">
+        <span class="eyebrow mono">03 / Leadership, events &amp; judging</span>
+        <h2 class="display">Build the event.<br><span class="mint">Back the next idea.</span></h2>
+        <p>From creating a space for campus builders to evaluating student robotics, I help make technical events more welcoming, ambitious, and meaningful.</p>
+      </div>
+      <div class="timeline">
+        <article class="timeline-item glass reveal">
+          <div class="timeline-icon" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></div>
+          <div><h3>Core Team Organizer · AI Marathon</h3><p>Helped lead planning and delivery of SSIT’s offline, two-day flagship hackathon, welcoming 100 teams and more than 400 participants.</p></div>
+          <div class="timeline-org">AI MARATHON<span>SSIT · Core team</span></div>
+        </article>
+        <article class="timeline-item glass reveal">
+          <div class="timeline-icon" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3v18m-7-5 7 5 7-5"/><path d="M5 7h14M7 3h10v4H7z"/></svg></div>
+          <div><h3>Core Team Organizer · Hackers 2.0</h3><p>Contributed to creating an energetic campus space for students to collaborate, experiment, and turn ideas into working projects.</p></div>
+          <div class="timeline-org">HACKERS 2.0<span>SSIT · Core team</span></div>
+        </article>
+        <article class="timeline-item glass reveal">
+          <div class="timeline-icon" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8M4 5l3 2m10-2-3 2"/></svg></div>
+          <div><h3>Host · Robo Akhada</h3><p>Hosted Robo Akhada, engaging the audience and guiding the event on stage as student teams showcased their robotic builds and technical innovations.</p></div>
+          <div class="timeline-org">ROBO AKHADA<span>Event host</span></div>
+        </article>
+        <article class="timeline-item glass reveal">
+          <div class="timeline-icon" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 18v4m-4 0h8M5 4h14v9a7 7 0 0 1-14 0V4Z"/><path d="M5 7H3v3a4 4 0 0 0 4 4m12-7h2v3a4 4 0 0 1-4 4"/></svg></div>
+          <div><h3>Public Speaker &amp; Mentor</h3><p>Conducted the “What is a Hackathon?” seminar, guiding first-time participants and encouraging students to take part in campus innovation.</p></div>
+          <div class="timeline-org">CAMPUS SEMINARS<span>Speaker &amp; mentor</span></div>
+        </article>
+      </div>
+      <div class="sports-gallery-heading reveal">
+        <span class="impact-label mono">Event floor · Behind the scenes</span>
+        <h3>People, prototypes, possibility.</h3>
+        <p>Snapshots with the teams behind campus events and hackathons.</p>
+      </div>
+      <div class="event-gallery" aria-label="Leadership and event photo gallery">
+        <figure class="event-photo reveal">
+          <img src="assets/images/ai-marathon-team.jpg" alt="AI Marathon participants, organizers, and staff gathered at SSIT" loading="lazy" onerror="this.hidden = true">
+          <div class="event-placeholder" aria-hidden="true"><svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg><span>Add <strong>assets/images/ai-marathon-team.jpg</strong></span></div>
+          <figcaption><span>AI Marathon · SSIT</span><strong>Core team</strong></figcaption>
+        </figure>
+        <figure class="event-photo reveal">
+          <img src="assets/images/hackers-2-team.png" alt="Hackers 2.0 core organizing team standing together at SSIT" loading="lazy" onerror="this.hidden = true">
+          <div class="event-placeholder" aria-hidden="true"><svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg><span>Add <strong>assets/images/hackers-2-team.png</strong></span></div>
+          <figcaption><span>Hackers 2.0 · SSIT</span><strong>Core team</strong></figcaption>
+        </figure>
+        <figure class="event-photo reveal">
+           <img src="assets/images/event-organizing-team.png" alt="Student sponsorship team gathered on the SSIT campus" loading="lazy" onerror="this.hidden = true">
+           <div class="event-placeholder" aria-hidden="true"><svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg><span>Add <strong>assets/images/event-organizing-team.png</strong></span></div>
+           <figcaption><span>Campus events · SSIT</span><strong>Sponsorship team</strong></figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="work-section" id="impact">
+      <div class="shell section">
+        <div class="section-heading reveal">
+          <span class="eyebrow mono">04 / Kukkie’s arena</span>
+          <h2 class="display">Earned on the field.<br><span class="mint">Carried into every build.</span></h2>
+          <p>Known as <strong>Kukkie</strong> in sports and campus circles. Training teaches you what motivation can’t: discipline on the hard days, trust in your team, and how to keep your head in the final stretch.</p>
+        </div>
+        <div class="impact-grid">
+          <article class="impact-card glass reveal">
+            <span class="impact-label mono">On the court</span>
+            <h3>Inter-zonal badminton</h3>
+            <p>Earned a place at inter-zonal level after clearing the zonal rounds. Every point is a lesson in focus and footwork.</p>
+            <div class="sports-list"><span>Badminton</span><span>Kabaddi</span><span>Volleyball</span></div>
+          </article>
+          <article class="impact-card wide glass reveal">
+            <div><span class="impact-label mono">On the track</span><h3>Built for the final 100 metres.</h3><p>A sprinter and competitive athlete. The same stamina, repetition, and competitive spirit that carry me down the track show up when I’m building under pressure with a team.</p></div>
+            <div class="impact-metric">100<span> M · SPRINT</span></div>
+          </article>
+        </div>
+        <div class="sports-gallery-heading reveal">
+          <span class="impact-label mono">Beyond the scoreboard · Team photos</span>
+          <h3>Every sport. One team spirit.</h3>
+          <p>Snapshots with my badminton, Kabaddi, and Zonal volleyball teams.</p>
+        </div>
+        <div class="sports-gallery" aria-label="Badminton, Kabaddi, and Zonal volleyball team photos">
+          <figure class="sports-photo reveal">
+            <img src="assets/images/prince-badminton-interzonal-team.jpg" alt="Prince posing with his badminton team on an indoor badminton court" loading="lazy">
+            <figcaption><span class="impact-label mono">Inter-zonal · Badminton</span><strong>Better together, on and off the court.</strong></figcaption>
+          </figure>
+          <figure class="sports-photo reveal">
+            <img src="assets/images/prince-kabaddi-zonal-team.jpg" alt="Prince with his Kabaddi Zonal team on the field" loading="lazy">
+            <figcaption><span class="impact-label mono">Zonal · Kabaddi</span><strong>Trust, grit, and every teammate.</strong></figcaption>
+          </figure>
+          <figure class="sports-photo reveal">
+            <img src="assets/images/prince-volleyball-zonal-team.jpg" alt="Prince with his SSIT volleyball Zonal team, gathered with a volleyball" loading="lazy">
+            <figcaption><span class="impact-label mono">Zonal · Volleyball</span><strong>Every point belongs to the team.</strong></figcaption>
+          </figure>
+        </div>
+        <div class="sports-highlight-grid">
+          <article class="sports-highlight sports-highlight-feature volleyball-feature glass reveal">
+            <div>
+              <span class="impact-label mono">District podium · Volleyball</span>
+              <h3>3rd place at Khel Mahakumbh</h3>
+              <p>Earned a district-level third-place finish in volleyball at Khel Mahakumbh—proof that teamwork and showing up for each other matter.</p>
+              <div class="sports-list"><span>District level</span><span>Volleyball</span><span>3rd place</span></div>
+            </div>
+            <figure class="sports-photo">
+              <img src="assets/images/prince-volleyball-team-court.jpg" alt="Prince and his volleyball teammates celebrating their Khel Mahakumbh result" loading="lazy">
+              <figcaption><span class="impact-label mono">Khel Mahakumbh · Volleyball</span><strong>Every match is a team effort.</strong></figcaption>
+            </figure>
+          </article>
+          <article class="sports-highlight sports-highlight-feature adventure-feature glass reveal">
+            <div>
+              <span class="impact-label mono">Adventure · Leadership</span>
+              <h3>Peak Hikers trainee &amp; trekking guide</h3>
+              <p>Selected for the Peak Hikers training camp and worked part-time as a trekking guide, helping lead tourists safely across challenging terrain.</p>
+              <div class="sports-list"><span>Outdoor leadership</span><span>Route awareness</span><span>Team safety</span></div>
+            </div>
+            <figure class="sports-photo">
+              <img src="assets/images/prince-peak-hikers.jpg" alt="Prince outdoors during a Peak Hikers trekking session" loading="lazy">
+              <figcaption><span class="impact-label mono">Peak Hikers · Outdoors</span><strong>Find your pace. Keep moving.</strong></figcaption>
+            </figure>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="work-section creator-section" id="creator">
+      <div class="shell section">
+        <div class="section-heading creator-heading reveal">
+          <div>
+            <span class="eyebrow mono">05 / Creator behind the lens</span>
+            <h2 class="display">A moment, a mood,<br><span class="mint">a story in motion.</span></h2>
+            <p>As <strong>@unfilter_prince</strong>, I explore creative video editing, visual storytelling, aesthetic reels, and expressive digital media. Pick a reel to open it on Instagram.</p>
+          </div>
+          <a class="creator-handle" href="https://www.instagram.com/unfilter_prince?dlrf=MnpsaWp6dGpyZGh1" target="_blank" rel="noopener noreferrer">◎ &nbsp; @unfilter_prince <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="reels-grid">
+          <a class="reel-card featured-reel-one reveal" href="https://www.instagram.com/reel/DaaUd6aSeuN/?rpxt=dWRnbDJxNDU1Mw==" target="_blank" rel="noreferrer" aria-label="Open featured Instagram reel one: Flim Yourself, Episode 1">
+            <div class="reel-top"><span>INSTAGRAM REEL</span><span>01 / 02</span></div>
+            <span class="reel-play" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+            <div><h3>Flim Yourself · Episode 1</h3><small>Open visual story on Instagram ↗</small></div>
+          </a>
+          <a class="reel-card featured-reel-two reveal" href="https://www.instagram.com/reel/DdOjl8LP8B8/?rpxt=MTNubDg1eTVoYWpwYQ==" target="_blank" rel="noreferrer" aria-label="Open featured Instagram reel two: Film Yourself, Episode 2">
+            <div class="reel-top"><span>INSTAGRAM REEL</span><span>02 / 02</span></div>
+            <span class="reel-play" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+            <div><h3>Film Yourself · Episode 2</h3><small>Open visual story on Instagram ↗</small></div>
+          </a>
+          <a class="reel-card featured-post reveal" href="https://www.instagram.com/p/DdUI52HCDCm7l-PamdaOXQm_GtEqvmXmy-yN3Q0/?mdxt=MXExMnZyYnUwcmJycg==" target="_blank" rel="noreferrer" aria-label="Open featured Instagram post">
+            <div class="reel-top"><span>INSTAGRAM POST</span><span>03 / 03</span></div>
+            <span class="reel-play" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".7" fill="currentColor"/></svg></span>
+            <div><h3>Featured post</h3><small>Open creative post on Instagram ↗</small></div>
+          </a>
+        </div>
+        <p class="creator-note">Instagram links open in a new tab. Reel and post cards use your supplied cover images where available.</p>
+      </div>
+    </section>
+
+    <section class="shell section contact-section" id="contact">
+      <div class="contact-panel glass reveal">
+        <div class="contact-copy">
+          <span class="eyebrow mono">06 / Your move</span>
+          <h2 class="display">Have something<br><span class="mint">good in mind?</span></h2>
+          <p>Interested in building together, talking tech events, or comparing notes on sport and software? I’d love to hear from you.</p>
+          <div class="social-links">
+            <a href="https://github.com/Prince-1409" target="_blank" rel="noreferrer" aria-label="GitHub profile">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .9a11.2 11.2 0 0 0-3.54 21.83c.56.1.76-.24.76-.54v-2.1c-3.1.68-3.76-1.32-3.76-1.32-.5-1.3-1.23-1.65-1.23-1.65-1-.68.08-.67.08-.67 1.1.08 1.68 1.14 1.68 1.14.98 1.67 2.55 1.19 3.17.91.1-.7.38-1.19.69-1.46-2.48-.28-5.09-1.24-5.09-5.53 0-1.22.44-2.22 1.14-3-.12-.28-.5-1.42.11-2.96 0 0 .93-.3 3.08 1.15a10.7 10.7 0 0 1 5.61 0c2.14-1.45 3.07-1.15 3.07-1.15.62 1.54.23 2.68.12 2.96.71.78 1.13 1.78 1.13 3.01 0 4.3-2.61 5.24-5.1 5.51.4.35.74 1.02.74 2.06v3.05c0 .3.2.65.77.54A11.2 11.2 0 0 0 12 .9Z"/></svg>GitHub
+            </a>
+            <a href="https://www.linkedin.com/search/results/people/?keywords=Prince%20Darji" target="_blank" rel="noreferrer" aria-label="Search for Prince Darji on LinkedIn">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.45 2H3.55C2.69 2 2 2.68 2 3.52v16.96c0 .84.69 1.52 1.55 1.52h16.9c.86 0 1.55-.68 1.55-1.52V3.52c0-.84-.69-1.52-1.55-1.52ZM7.93 18.5H4.97V9h2.96v9.5ZM6.45 7.7a1.72 1.72 0 1 1 0-3.44 1.72 1.72 0 0 1 0 3.44ZM19 18.5h-2.96v-4.62c0-1.1-.02-2.52-1.54-2.52-1.55 0-1.79 1.2-1.79 2.44v4.7H9.75V9h2.84v1.3h.04c.4-.75 1.36-1.54 2.8-1.54 3 0 3.57 1.98 3.57 4.57v5.17Z"/></svg>LinkedIn
+            </a>
+            <a href="https://www.instagram.com/unfilter_prince?dlrf=MnpsaWp6dGpyZGh1" target="_blank" rel="noopener noreferrer" aria-label="Instagram creator profile @unfilter_prince">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".8" fill="currentColor"/></svg>Instagram
+            </a>
+            <a href="mailto:darjiprince321@gmail.com" aria-label="Email Prince at darjiprince321@gmail.com"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>darjiprince321@gmail.com</a>
+          </div>
+        </div>
+        <form class="contact-form" id="contact-form">
+          <div class="field-row">
+            <label>Your name<input name="name" autocomplete="name" placeholder="How should I call you?" required></label>
+            <label>Your email<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label>
+          </div>
+          <label>What’s on your mind?<textarea name="message" placeholder="Tell me a little about it..." required></textarea></label>
+          <button class="button button-primary contact-submit" type="submit">Prepare an email <span aria-hidden="true">↗</span></button>
+          <p class="form-status" id="form-status" aria-live="polite">Your email app will open with your message ready to send.</p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    <div class="footer-inner">
+      <span>© <span id="year"></span> Prince Darji · Built with intention.</span>
+      <span>BCA · SSIT × GTU · <a href="#top" class="back-top">Back to top ↑</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const CONTACT_EMAIL = "darjiprince321@gmail.com";
+      const words = ["BCA developer.", "Robo Akhada host.", "Inter-zonal athlete.", "Peak Hikers guide.", "Content creator."];
+      const typed = document.getElementById("typed-text");
+      const menuButton = document.querySelector(".menu-toggle");
+      const nav = document.getElementById("primary-nav");
+      const header = document.querySelector(".topbar");
+      const progress = document.querySelector(".scroll-progress");
+      const form = document.getElementById("contact-form");
+      const formStatus = document.getElementById("form-status");
+      const portraitPhotos = document.querySelectorAll(".portrait-photo");
+      let wordIndex = 0;
+      let characterIndex = 0;
+      let deleting = false;
+
+      function typeNext() {
+        const word = words[wordIndex];
+        characterIndex += deleting ? -1 : 1;
+        typed.textContent = word.slice(0, characterIndex);
+        let delay = deleting ? 48 : 85;
+        if (!deleting && characterIndex === word.length) {
+          deleting = true;
+          delay = 1450;
+        } else if (deleting && characterIndex === 0) {
+          deleting = false;
+          wordIndex = (wordIndex + 1) % words.length;
+          delay = 340;
+        }
+        window.setTimeout(typeNext, delay);
+      }
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        typed.textContent = words[0];
+      } else {
+        window.setTimeout(typeNext, 350);
+      }
+
+      if (portraitPhotos.length > 1) {
+        let portraitIndex = 0;
+        window.setInterval(() => {
+          if (document.hidden || document.querySelector(".profile-card:hover")) return;
+          portraitPhotos[portraitIndex].classList.remove("is-active");
+          portraitPhotos[portraitIndex].setAttribute("aria-hidden", "true");
+          portraitIndex = (portraitIndex + 1) % portraitPhotos.length;
+          portraitPhotos[portraitIndex].classList.add("is-active");
+          portraitPhotos[portraitIndex].removeAttribute("aria-hidden");
+        }, 5000);
+      }
+
+      menuButton.addEventListener("click", () => {
+        const isOpen = nav.classList.toggle("open");
+        menuButton.setAttribute("aria-expanded", String(isOpen));
+        menuButton.setAttribute("aria-label", isOpen ? "Close navigation menu" : "Open navigation menu");
+      });
+      nav.querySelectorAll("a").forEach((link) => link.addEventListener("click", () => {
+        nav.classList.remove("open");
+        menuButton.setAttribute("aria-expanded", "false");
+        menuButton.setAttribute("aria-label", "Open navigation menu");
+      }));
+
+      function updateScroll() {
+        const scrollable = document.documentElement.scrollHeight - window.innerHeight;
+        progress.style.width = `${scrollable > 0 ? (window.scrollY / scrollable) * 100 : 0}%`;
+        header.classList.toggle("scrolled", window.scrollY > 16);
+      }
+      window.addEventListener("scroll", updateScroll, { passive: true });
+      updateScroll();
+
+      if ("IntersectionObserver" in window) {
+        const revealObserver = new IntersectionObserver((entries, observer) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("visible");
+              observer.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.12 });
+        document.querySelectorAll(".reveal").forEach((element) => revealObserver.observe(element));
+
+        const sectionObserver = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              nav.querySelectorAll('a[href^="#"]').forEach((link) => {
+                link.classList.toggle("active", link.getAttribute("href") === `#${entry.target.id}`);
+              });
+            }
+          });
+        }, { rootMargin: "-30% 0px -60% 0px" });
+        document.querySelectorAll("main section[id]").forEach((section) => sectionObserver.observe(section));
+      } else {
+        document.querySelectorAll(".reveal").forEach((element) => element.classList.add("visible"));
+      }
+
+      document.getElementById("year").textContent = String(new Date().getFullYear());
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!CONTACT_EMAIL) {
+          formStatus.textContent = "Add your email in the CONTACT_EMAIL setting in this file to activate sending.";
+          formStatus.classList.add("error");
+          return;
+        }
+        const data = new FormData(form);
+        const subject = `Portfolio hello from ${data.get("name")}`;
+        const body = `${data.get("message")}\n\nReply to: ${data.get("email")}`;
+        window.location.href = `mailto:${encodeURIComponent(CONTACT_EMAIL)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        formStatus.textContent = "Your email app is opening with your message ready to send.";
+        formStatus.classList.remove("error");
+      });
+    })();
+  </script>
+</body>
+</html>
